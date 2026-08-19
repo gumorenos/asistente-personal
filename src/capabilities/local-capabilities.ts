@@ -16,6 +16,7 @@ import { localPeriodRange, type ExpensePeriod } from './time-utils.ts';
 import type { Capability, CapabilityResult } from './types.ts';
 
 const MAX_COMMAND_LENGTH = 2_000;
+const AI_PREFIX = /^(?:\/?ia|\/?ai)(?:\s|$)/i;
 
 export class LocalCapabilities implements Capability {
   readonly name = 'local';
@@ -47,6 +48,9 @@ export class LocalCapabilities implements Capability {
     const text = message.text.trim();
     if (!text) return undefined;
     if (text.length > MAX_COMMAND_LENGTH) {
+      // Stage 2 capabilities own their limits. Do not let the Stage 1 local bound
+      // intercept an explicit AI request before AiCapability can validate it.
+      if (AI_PREFIX.test(text)) return undefined;
       return { handled: true, reply: '⚠️ El comando es demasiado largo y no fue guardado.' };
     }
 
