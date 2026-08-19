@@ -66,7 +66,8 @@ export async function useSqliteAuthState(
 
           let value = deserialize<SignalDataTypeMap[T]>(row.value_json);
           if (type === 'app-state-sync-key' && value) {
-            value = proto.Message.AppStateSyncKeyData.create(value) as SignalDataTypeMap[T];
+            const appStateKey = value as Parameters<typeof proto.Message.AppStateSyncKeyData.create>[0];
+            value = proto.Message.AppStateSyncKeyData.create(appStateKey) as unknown as SignalDataTypeMap[T];
           }
           result[id] = value;
         }
