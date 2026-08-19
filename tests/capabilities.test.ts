@@ -106,10 +106,10 @@ test('expense can be categorized after capture', async () => {
 
 test('expense period listing and monthly summary use local timezone boundaries', async () => {
   const { db, expenses, capabilities } = setup();
-  expenses.create({ amountMinor: 1000, currency: 'PEN', category: 'comida', occurredAt: '2026-08-19T01:30:00.000Z' });
+  expenses.create({ amountMinor: 1000, currency: 'PEN', category: 'comida', occurredAt: '2026-08-18T04:30:00.000Z' });
   expenses.create({ amountMinor: 2000, currency: 'PEN', category: 'transporte', occurredAt: '2026-08-19T02:30:00.000Z' });
   const today = (await capabilities.handle(message('gastos hoy')))?.reply ?? '';
-  assert.doesNotMatch(today, /10\.00/); // 20:30 del día anterior en Lima
+  assert.doesNotMatch(today, /10\.00/); // 23:30 del 17 de agosto en Lima
   assert.match(today, /20\.00/); // 21:30 del 18 de agosto en Lima
   const summary = (await capabilities.handle(message('resumen gastos mes')))?.reply ?? '';
   assert.match(summary, /Total: S\/ 30\.00 en 2 gastos/);
