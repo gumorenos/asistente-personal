@@ -8,7 +8,7 @@ export function routeMessage(message: IncomingMessage): RouteResult {
   if (['ping', '/ping'].includes(text)) return { handled: true, reply: 'pong' };
 
   if (['estado', '/estado', 'status'].includes(text)) {
-    return { handled: true, reply: '✅ Asistente activo. Stage 2: local + IA + audio + propuestas/approvals de Calendar sin writes.' };
+    return { handled: true, reply: '✅ Asistente activo. Calendar writes requieren aprobación + ejecución explícita y están deshabilitados por defecto.' };
   }
 
   if (['ayuda', '/ayuda', 'help'].includes(text)) {
@@ -24,11 +24,12 @@ export function routeMessage(message: IncomingMessage): RouteResult {
         '• agenda mañana a las 10 reunión por 30 minutos',
         '• acciones',
         '• aprueba acción #N / rechaza acción #N',
+        '• ejecuta acción #N — solo si CALENDAR_ENABLED=true',
         '• ia <pregunta>',
         '• audio: transcripción solo si está habilitada',
         '',
-        'Agenda crea solo una propuesta local. Aprobar tampoco ejecuta Calendar todavía.',
-        'IA/transcripción no ejecutan acciones.',
+        'Crear una propuesta y aprobarla NO ejecuta Calendar.',
+        'Un write requiere además “ejecuta acción #N” y Calendar habilitado.',
         'Observer, documentos y agentes externos siguen deshabilitados.',
       ].join('\n'),
     };

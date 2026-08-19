@@ -31,6 +31,15 @@ export interface AppConfig {
     maxBytes: number;
     maxTranscriptChars: number;
   };
+  calendar: {
+    enabled: boolean;
+    provider: 'google';
+    calendarId: string;
+    clientId?: string;
+    clientSecret?: string;
+    refreshToken?: string;
+    timeoutMs: number;
+  };
 }
 
 function parseBoolean(value: string | undefined, fallback = false): boolean {
@@ -101,6 +110,20 @@ function parseProvider(value: string | undefined, name: string): 'openai-compati
   return provider;
 }
 
+function parseCalendarProvider(value: string | undefined): 'google' {
+  const provider = value?.trim().toLowerCase() || 'google';
+  if (provider !== 'google') throw new Error(`Unsupported CALENDAR_PROVIDER: ${provider}`);
+  return provider;
+}
+
+function parseCalendarId(value: string | undefined): string {
+  const calendarId = value?.trim() || 'primary';
+  if (!calendarId || calendarId.length > 512 || /\s/.test(calendarId)) {
+    throw new Error('Invalid GOOGLE_CALENDAR_ID');
+  }
+  return calendarId;
+}
+
 function isLoopback(hostname: string): boolean {
   return ['localhost', '127.0.0.1', '::1', '[::1]'].includes(hostname.toLowerCase());
 }
@@ -136,6 +159,12 @@ function validateExternalProvider(
   }
 }
 
+function requiredSecret(value: string | undefined, name: string, enabled: boolean): string | undefined {
+  const trimmed = value?.trim() || undefined;
+  if (enabled && !trimmed) throw new Error(`${name} is required when CALENDAR_ENABLED=true`);
+  return trimmed;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const aiEnabled = parseBoolean(env.AI_ENABLED, false);
   const aiBaseUrl = parseExternalBaseUrl(env.AI_BASE_URL, 'AI_BASE_URL');
@@ -154,6 +183,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     transcriptionApiKey,
     'TRANSCRIPTION',
   );
+
+  const calendarEnabled = parseBoolean(env.CALENDAR_ENABLED, false);
+  const calendarClientId = requiredSecret(env.GOOGLE_CALENDAR_CLIENT_ID, 'GOOGLE_CALENDAR_CLIENT_ID', calendarEnabled);
+  const calendarClientSecret = requiredSecret(env.GOOGLE_CALENDAR_CLIENT_SECRET, 'GOOGLE_CALENDAR_CLIENT_SECRET', calendarEnabled);
+  const calendarRefreshToken = requiredSecret(env.GOOGLE_CALENDAR_REFRESH_TOKEN, 'GOOGLE_CALENDAR_REFRESH_TOKEN', calendarEnabled);
 
   return {
     nodeEnv: env.NODE_ENV ?? 'development',
@@ -205,6 +239,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         100,
         20_000,
       ),
+    },
+    calendar: {
+      enabled: calendarEnabled,
+      provider: parseCalendarProvider(env.CALENDAR_PROVIDER),
+      calendarId: parseCalendarId(env.GOOGLE_CALENDAR_ID),
+      clientId: calendarClientId,
+      clientSecret: calendarClientSecret,
+      refreshToken: calendarRefreshToken,
+      timeoutMs: parsePositiveInteger(env.CALENDAR_TIMEOUT_MS, 20_000, 'CALENDAR_TIMEOUT_MS', 1_000, 120_000),
     },
   };
 }

@@ -1,9 +1,13 @@
 import { createHealthServer } from './api/health.ts';
 import { OpenAICompatibleProvider } from './ai/openai-compatible-provider.ts';
 import type { AiProvider } from './ai/types.ts';
+import { CalendarActionExecutor } from './calendar/calendar-action-executor.ts';
+import { GoogleCalendarProvider } from './calendar/google-calendar-provider.ts';
+import { GoogleOAuthAccessTokenProvider } from './calendar/google-oauth-token-provider.ts';
 import { ActionApprovalCapability } from './capabilities/action-approval-capability.ts';
 import { AiCapability } from './capabilities/ai-capability.ts';
 import { AudioTranscriptionCapability } from './capabilities/audio-transcription-capability.ts';
+import { CalendarExecutionCapability } from './capabilities/calendar-execution-capability.ts';
 import { CalendarProposalCapability } from './capabilities/calendar-proposal-capability.ts';
 import { LocalCapabilities } from './capabilities/local-capabilities.ts';
 import type { Capability } from './capabilities/types.ts';
@@ -11,6 +15,7 @@ import { loadConfig } from './config.ts';
 import { AssistantCore } from './core/assistant.ts';
 import { logger } from './core/logger.ts';
 import type { AssistantStatus } from './core/types.ts';
+import { ActionExecutionRepository } from './database/action-execution-repository.ts';
 import { ActionRequestRepository } from './database/action-request-repository.ts';
 import { AuditRepository } from './database/audit-repository.ts';
 import { AppDatabase } from './database/db.ts';
@@ -33,6 +38,7 @@ const expenses = new ExpenseRepository(database);
 const reminders = new ReminderRepository(database);
 const audit = new AuditRepository(database);
 const actions = new ActionRequestRepository(database);
+const actionExecutions = new ActionExecutionRepository(database);
 
 let transport: MessageTransport;
 if (config.whatsapp.enabled) transport = new BaileysWhatsAppTransport(config.whatsapp, database, messages);
@@ -54,10 +60,26 @@ if (config.transcription.enabled) {
   });
 }
 
+let calendarExecutor: CalendarActionExecutor | undefined;
+if (config.calendar.enabled) {
+  const tokenProvider = new GoogleOAuthAccessTokenProvider({
+    clientId: config.calendar.clientId!,
+    clientSecret: config.calendar.clientSecret!,
+    refreshToken: config.calendar.refreshToken!,
+    timeoutMs: config.calendar.timeoutMs,
+  });
+  const calendarProvider = new GoogleCalendarProvider({
+    calendarId: config.calendar.calendarId,
+    timeoutMs: config.calendar.timeoutMs,
+  }, tokenProvider);
+  calendarExecutor = new CalendarActionExecutor(actions, actionExecutions, audit, calendarProvider);
+}
+
 const capabilities: Capability[] = [
   new LocalCapabilities(notes, reminders, expenses, audit, config.timeZone),
   new CalendarProposalCapability(actions, audit, config.timeZone),
   new ActionApprovalCapability(actions, audit),
+  new CalendarExecutionCapability(config.calendar.enabled, calendarExecutor),
   new AudioTranscriptionCapability(transcriptionProvider, audit, {
     enabled: config.transcription.enabled,
     maxBytes: config.transcription.maxBytes,
@@ -92,6 +114,8 @@ try {
     aiProvider: config.ai.enabled ? config.ai.provider : 'disabled',
     transcriptionEnabled: config.transcription.enabled,
     transcriptionProvider: config.transcription.enabled ? config.transcription.provider : 'disabled',
+    calendarWritesEnabled: config.calendar.enabled,
+    calendarProvider: config.calendar.enabled ? config.calendar.provider : 'disabled',
   });
 } catch (error) {
   appState = 'degraded';
