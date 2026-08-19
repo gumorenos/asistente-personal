@@ -28,8 +28,10 @@ import { MessageRepository } from './database/message-repository.ts';
 import { NoteRepository } from './database/note-repository.ts';
 import { ObservedChatRepository } from './database/observed-chat-repository.ts';
 import { ReminderRepository } from './database/reminder-repository.ts';
+import { RetentionRepository } from './database/retention-repository.ts';
 import { BriefingScheduler } from './scheduler/briefing-scheduler.ts';
 import { ReminderScheduler } from './scheduler/reminder-scheduler.ts';
+import { RetentionScheduler } from './scheduler/retention-scheduler.ts';
 import { OpenAICompatibleTranscriptionProvider } from './transcription/openai-compatible-provider.ts';
 import type { TranscriptionProvider } from './transcription/types.ts';
 import { DisabledTransport } from './transports/disabled.ts';
@@ -47,6 +49,7 @@ const actions = new ActionRequestRepository(database);
 const actionExecutions = new ActionExecutionRepository(database);
 const briefingDeliveries = new BriefingDeliveryRepository(database);
 const observedChats = new ObservedChatRepository(database);
+const retention = new RetentionRepository(database);
 const briefingService = new BriefingService(notes, reminders, expenses, actions, config.timeZone);
 
 let transport: MessageTransport;
@@ -97,6 +100,16 @@ if (config.briefing.enabled) {
   );
 }
 
+let retentionScheduler: RetentionScheduler | undefined;
+if (config.retention.enabled) {
+  retentionScheduler = new RetentionScheduler(retention, audit, {
+    messageDays: config.retention.messageDays,
+    outboundDays: config.retention.outboundDays,
+    auditDays: config.retention.auditDays,
+    briefingDays: config.retention.briefingDays,
+  });
+}
+
 const capabilities: Capability[] = [
   new LocalCapabilities(notes, reminders, expenses, audit, config.timeZone),
   new BriefingCapability(briefingService),
@@ -125,6 +138,9 @@ const healthServer = await createHealthServer(config.healthHost, config.healthPo
   getAssistantStatus: () => ({ state: appState, transport: transport.name, transportState: transport.getState() }),
 });
 
+// Retention is transport-independent and can run even if WhatsApp is degraded.
+retentionScheduler?.start();
+
 try {
   await transport.connect();
   reminderScheduler.start();
@@ -145,6 +161,13 @@ try {
     dailyBriefingTime: `${String(config.briefing.hour).padStart(2, '0')}:${String(config.briefing.minute).padStart(2, '0')}`,
     observedChatAllowlistCount: observedChats.listEnabled().length,
     observerEnabled: false,
+    retentionEnabled: config.retention.enabled,
+    retentionPolicy: config.retention.enabled ? {
+      messageDays: config.retention.messageDays,
+      outboundDays: config.retention.outboundDays,
+      auditDays: config.retention.auditDays,
+      briefingDays: config.retention.briefingDays,
+    } : undefined,
   });
 } catch (error) {
   appState = 'degraded';
@@ -159,6 +182,7 @@ async function shutdown(signal: string): Promise<void> {
   shuttingDown = true;
   appState = 'stopped';
   logger.info('Shutting down', { signal });
+  retentionScheduler?.stop();
   briefingScheduler?.stop();
   reminderScheduler.stop();
   await transport.disconnect().catch(() => undefined);
