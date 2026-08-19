@@ -33,13 +33,13 @@ CI green for Stage 0 at commit `bed3012065d6dd44688fc6d93bcfc05d74956d5f`.
 - [x] Reminder scheduler delivers a due reminder only once.
 - [x] Failed reminder delivery remains pending for retry.
 - [x] Migration v2 adds reminder destination/delivery fields.
+- [x] Stage 1A `npm run typecheck` passes in GitHub Actions.
+- [x] All 13 tests pass in GitHub Actions on Node 22.18.0.
 
-Local result after Stage 1A: **13 tests passed** on Node 22.16 using the experimental type-stripping flag. GitHub CI on Node 22.18+ remains the release source of truth.
+CI green for Stage 1A at commit `cb28351f59b1810d028283b94f5a5bb15e70866a`.
 
 ## CI / dependency validation still pending
 
-- [ ] Stage 1A `npm run typecheck` passes in GitHub Actions.
-- [ ] Stage 1A all 13 tests pass in GitHub Actions on Node 22.18.0.
 - [ ] Docker image builds on linux/amd64.
 - [ ] Docker image builds on linux/arm64 (Raspberry Pi 5 target).
 - [ ] Generate and commit `package-lock.json`; switch CI/Docker from `npm install` to `npm ci`.
@@ -111,4 +111,4 @@ Local result after Stage 1A: **13 tests passed** on Node 22.16 using the experim
 
 ## Current stop point for risky features
 
-Stage 1A may continue through CI and local capability development. **Do not enable Observer mode, third-party replies, Calendar writes or external agents until the relevant safety/approval layer exists.**
+Stage 1A is green in automated CI. **Do not enable Observer mode, third-party replies, Calendar writes or external agents until the relevant safety/approval layer exists.**
