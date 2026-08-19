@@ -141,6 +141,17 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
         ON action_executions(status, updated_at DESC);
     `,
   },
+  {
+    version: 7,
+    sql: `
+      CREATE TABLE IF NOT EXISTS briefing_deliveries (
+        local_date TEXT PRIMARY KEY,
+        destination TEXT NOT NULL,
+        message_id TEXT,
+        delivered_at TEXT NOT NULL
+      ) STRICT;
+    `,
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): void {
