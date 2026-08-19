@@ -81,8 +81,7 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
     sql: `
       ALTER TABLE reminders ADD COLUMN chat_id TEXT;
       ALTER TABLE reminders ADD COLUMN delivered_at TEXT;
-      CREATE INDEX IF NOT EXISTS idx_reminders_due
-        ON reminders(status, due_at)
+      CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(status, due_at)
         WHERE status = 'pending' AND due_at IS NOT NULL;
     `,
   },
@@ -102,14 +101,12 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
         action_type TEXT NOT NULL,
         summary TEXT NOT NULL,
         payload_json TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending'
-          CHECK (status IN ('pending', 'approved', 'rejected')),
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         decided_at TEXT,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       ) STRICT;
-      CREATE INDEX IF NOT EXISTS idx_action_requests_status_created
-        ON action_requests(status, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_action_requests_status_created ON action_requests(status, id DESC);
     `,
   },
   {
@@ -117,8 +114,7 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
     sql: `
       ALTER TABLE action_requests ADD COLUMN expires_at TEXT;
       CREATE INDEX IF NOT EXISTS idx_action_requests_pending_expiry
-        ON action_requests(status, expires_at)
-        WHERE status = 'pending';
+        ON action_requests(status, expires_at) WHERE status = 'pending';
     `,
   },
   {
@@ -137,8 +133,7 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (action_request_id) REFERENCES action_requests(id) ON DELETE RESTRICT
       ) STRICT;
-      CREATE INDEX IF NOT EXISTS idx_action_executions_status
-        ON action_executions(status, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_action_executions_status ON action_executions(status, updated_at DESC);
     `,
   },
   {
@@ -152,6 +147,20 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       ) STRICT;
     `,
   },
+  {
+    version: 8,
+    sql: `
+      CREATE TABLE IF NOT EXISTS observed_chats (
+        jid TEXT PRIMARY KEY,
+        label TEXT,
+        retention_days INTEGER NOT NULL DEFAULT 7 CHECK (retention_days BETWEEN 1 AND 90),
+        enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS idx_observed_chats_enabled ON observed_chats(enabled, jid);
+    `,
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): void {
@@ -161,10 +170,8 @@ export function runMigrations(db: DatabaseSync): void {
       applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) STRICT;
   `);
-
   const appliedRows = db.prepare('SELECT version FROM schema_migrations').all() as Array<{ version: number }>;
   const applied = new Set(appliedRows.map((row) => row.version));
-
   for (const migration of MIGRATIONS) {
     if (applied.has(migration.version)) continue;
     db.exec('BEGIN IMMEDIATE');
