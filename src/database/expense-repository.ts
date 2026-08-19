@@ -49,7 +49,7 @@ export class ExpenseRepository {
         ORDER BY occurred_at DESC, id DESC
         LIMIT ?
       `)
-      .all(limit) as RawExpenseRow[];
+      .all(limit) as unknown as RawExpenseRow[];
     return rows.map(mapRow);
   }
 
@@ -62,7 +62,7 @@ export class ExpenseRepository {
         ORDER BY occurred_at DESC, id DESC
         LIMIT ?
       `)
-      .all(startIso, endIso, limit) as RawExpenseRow[];
+      .all(startIso, endIso, limit) as unknown as RawExpenseRow[];
     return rows.map(mapRow);
   }
 
@@ -93,7 +93,7 @@ export class ExpenseRepository {
         GROUP BY COALESCE(category, 'sin categoría')
         ORDER BY total_minor DESC, category ASC
       `)
-      .all(startIso, endIso) as Array<{ category: string; count: number; total_minor: number }>;
+      .all(startIso, endIso) as unknown as Array<{ category: string; count: number; total_minor: number }>;
     return {
       count: total.count,
       totalMinor: total.total_minor,
