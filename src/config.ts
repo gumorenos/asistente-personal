@@ -46,6 +46,13 @@ export interface AppConfig {
     minute: number;
     destinationJid?: string;
   };
+  retention: {
+    enabled: boolean;
+    messageDays: number;
+    outboundDays: number;
+    auditDays: number;
+    briefingDays: number;
+  };
 }
 
 function parseBoolean(value: string | undefined, fallback = false): boolean {
@@ -236,6 +243,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       hour: briefingTime.hour,
       minute: briefingTime.minute,
       destinationJid: briefingDestinationJid,
+    },
+    retention: {
+      enabled: parseBoolean(env.RETENTION_ENABLED, false),
+      messageDays: parsePositiveInteger(env.MESSAGE_RETENTION_DAYS, 30, 'MESSAGE_RETENTION_DAYS', 1, 3_650),
+      outboundDays: parsePositiveInteger(env.OUTBOUND_RETENTION_DAYS, 30, 'OUTBOUND_RETENTION_DAYS', 1, 3_650),
+      auditDays: parsePositiveInteger(env.AUDIT_RETENTION_DAYS, 90, 'AUDIT_RETENTION_DAYS', 1, 3_650),
+      briefingDays: parsePositiveInteger(env.BRIEFING_RETENTION_DAYS, 90, 'BRIEFING_RETENTION_DAYS', 1, 3_650),
     },
   };
 }
