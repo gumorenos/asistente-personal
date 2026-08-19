@@ -4,43 +4,26 @@ Asistente personal autónomo con WhatsApp como interfaz inicial. El núcleo func
 
 ## Estado
 
-**Stage 1 — desarrollo completo / QA real de WhatsApp pendiente.**
+**Stage 1: desarrollo cerrado; QA real de WhatsApp/RPi pendiente.**  
+**Stage 2A: foundation de IA opcional en desarrollo.**
 
-Stage 1 entrega un asistente local, determinista y limitado al self-chat:
+Stage 1 entrega self-chat seguro, SQLite, notas, gastos, recordatorios, audit, health, CI reproducible y Docker amd64/arm64.
 
-- TypeScript ESM sobre Node 22.18+;
-- SQLite integrado con `node:sqlite`, WAL y migraciones;
-- interfaz `MessageTransport` independiente de WhatsApp;
-- adapter Baileys v7 fijado a una versión concreta;
-- auth state de Baileys persistido en SQLite;
-- normalización PN/LID y resolución canónica del JID autorizado;
-- allowlist estricta de self-chat para entrada y salida;
-- deduplicación y prevención de loops;
-- validación estricta de configuración;
-- notas locales con completar/archivar;
-- gastos PEN con categorías, consultas por período y resúmenes;
-- recordatorios persistentes con cancelar/completar y scheduler con reintento;
-- parsing de `hoy`, `mañana`, `en N minutos/horas/días`, días de semana y fechas explícitas;
-- auditoría local de mutaciones sin guardar cuerpos en metadata de auditoría;
-- `/healthz` y `/readyz`;
-- `package-lock.json`, `npm ci` y audit de dependencias de runtime;
-- Docker/Docker Compose;
-- CI con tests y builds `linux/amd64` + `linux/arm64`.
+Stage 2A añade una boundary de capabilities y una consulta IA explícita sin convertirla en dependencia del producto:
 
-Stage 1 **no incluye** IA, Calendar, audio, Observer, documentos ni agentes externos. Esas capacidades pertenecen a etapas posteriores.
+- interfaz `Capability` genérica y ordenada;
+- `LocalCapabilities` conserva prioridad y comportamiento determinista;
+- interfaz `AiProvider` desacoplada;
+- implementación inicial OpenAI-compatible por `fetch` nativo, sin SDK nuevo;
+- IA deshabilitada por defecto;
+- solo `ia <pregunta>` / `ai <pregunta>` envía texto al proveedor;
+- no se envía historial, notas, gastos, recordatorios ni documentos;
+- el modelo no tiene tools/function calling ni puede ejecutar acciones;
+- endpoint remoto exige HTTPS; loopback puede usar HTTP;
+- límites de input/output y timeout;
+- audit de metadata operacional sin prompt/respuesta.
 
-## Seguridad por defecto
-
-`WHATSAPP_ENABLED=false` y `WHATSAPP_SELF_JIDS` vacío son los defaults.
-
-Con la allowlist vacía:
-
-- no se procesa ningún mensaje de WhatsApp;
-- no se envía ninguna respuesta;
-- los mensajes enviados por ti a terceros no se usan para “descubrir” identidades propias;
-- el transporte solo puede mostrar metadata de identidad que provenga de la propia sesión/configuración de WhatsApp para ayudarte a configurar manualmente la allowlist.
-
-`sendText()` vuelve a validar el destino y rechaza cualquier JID que no esté expresamente incluido en `WHATSAPP_SELF_JIDS`.
+Calendar, audio, Observer, documentos y agentes externos siguen fuera de Stage 2A.
 
 ## Desarrollo local
 
@@ -54,59 +37,54 @@ npm audit --omit=dev --audit-level=high
 npm run dev
 ```
 
-Con WhatsApp deshabilitado se puede validar DB, core, capabilities y health sin emparejar ninguna cuenta.
+## Configuración IA Stage 2A
 
-## Comandos de Stage 1
+La IA está apagada por defecto:
+
+```env
+AI_ENABLED=false
+AI_PROVIDER=openai-compatible
+AI_BASE_URL=
+AI_API_KEY=
+AI_MODEL=
+```
+
+Para un proveedor remoto compatible con `/chat/completions`:
+
+```env
+AI_ENABLED=true
+AI_PROVIDER=openai-compatible
+AI_BASE_URL=https://proveedor.example/v1
+AI_API_KEY=tu_clave
+AI_MODEL=modelo-elegido
+```
+
+`AI_BASE_URL` remoto debe usar HTTPS. Para gateways locales se permite `http://127.0.0.1:...` o `http://localhost:...` y la API key puede omitirse.
+
+### Qué sale al proveedor
+
+Solo el texto escrito explícitamente después de `ia`/`ai` más un system prompt fijo. Ejemplo:
 
 ```text
-ping
-estado
-ayuda
-
-anota comprar filtro de agua
-notas
-completa nota #1
-archiva nota #2
-
-gasté S/ 78.50 en taxi #transporte
-gastos
-gastos hoy
-gastos semana
-gastos mes
-resumen gastos mes
-categoriza gasto #1 como transporte
-
-recuérdame en 30 minutos revisar el horno
-recuérdame mañana a las 10 pagar la tarjeta
-recuérdame viernes a las 16 llamar a Pedro
-recordatorios
-completa recordatorio #1
-cancela recordatorio #2
+ia dame tres formas de resumir esta idea
 ```
 
-## Primer emparejamiento WhatsApp
+Un mensaje como `anota comprar café`, `gasté 20 soles`, `recuérdame ...` o cualquier texto sin prefijo IA **no se envía** al proveedor.
 
-Haz la primera validación preferentemente con una cuenta o número no crítico.
+## Comandos
 
-1. Configura el teléfono y habilita el transporte, pero deja vacía la allowlist:
+Los comandos Stage 1 siguen disponibles. Stage 2A añade:
 
-```env
-WHATSAPP_ENABLED=true
-WHATSAPP_PHONE_NUMBER=519XXXXXXXX
-WHATSAPP_SELF_JIDS=
+```text
+ia <pregunta>
+ai <pregunta>
 ```
 
-2. Arranca la app y vincula el dispositivo con el pairing code.
-3. Al conectar, la app puede mostrar `configuredPhoneJid` y/o `ownSocketId` provenientes de la configuración/sesión. **No autoriza automáticamente ninguno.**
-4. Con `WHATSAPP_SELF_JIDS` vacío, cualquier mensaje debe ser ignorado y no debe producir respuesta.
-5. Configura manualmente el JID PN confiable correspondiente a tu número y, solo si fue validado, el LID asociado:
+El output de IA es solo texto. Aunque el modelo responda `anota ...` o `recuérdame ...`, esa salida no vuelve al router y no se ejecuta.
 
-```env
-WHATSAPP_SELF_JIDS=519XXXXXXXX@s.whatsapp.net,123456789012345@lid
-```
+## WhatsApp / QA
 
-6. Reinicia el servicio y envía `ping` en tu self-chat. Debe responder `pong` exactamente una vez.
-7. Ejecuta el checklist completo de [`docs/QA-PENDING.md`](docs/QA-PENDING.md) antes de considerar el despliegue listo para uso diario.
+El emparejamiento y QA real de Stage 1 permanecen pendientes y están documentados en [`docs/QA-PENDING.md`](docs/QA-PENDING.md). El desarrollo posterior puede continuar sin marcar esos checks como aprobados.
 
 ## Docker
 
@@ -125,18 +103,15 @@ El compose publica health únicamente en loopback del host.
 - [`docs/SECURITY.md`](docs/SECURITY.md)
 - [`docs/QA-PENDING.md`](docs/QA-PENDING.md)
 
-## Después de Stage 1
+## Roadmap después de Stage 2A
 
-El siguiente trabajo empieza en Stage 2 y no modifica la independencia del core:
+1. audio/transcripción;
+2. Calendar con propuesta + confirmación antes de escribir;
+3. briefing personal;
+4. Observer read-only sobre chats expresamente autorizados;
+5. memoria/búsqueda y documentos;
+6. integraciones opcionales con OpenClaw, Claude Code, Codex u otros agentes, solo si aportan valor.
 
-1. abstracción opcional de proveedor de IA para lenguaje más flexible;
-2. audio/transcripción;
-3. Calendar con propuesta + confirmación antes de escribir;
-4. briefing personal;
-5. Observer read-only sobre chats expresamente autorizados;
-6. memoria/búsqueda y documentos;
-7. integraciones opcionales con OpenClaw, Claude Code, Codex u otros agentes, solo si aportan valor.
+## Aviso
 
-## Aviso sobre Baileys
-
-Baileys interactúa con el protocolo de WhatsApp Web y no es la API oficial de WhatsApp Business. Este proyecto es para uso personal y conservador. No debe utilizarse para spam, mensajes masivos, outreach automatizado, vigilancia ni automatización abusiva.
+Baileys interactúa con WhatsApp Web y no es la API oficial de WhatsApp Business. El proyecto es para uso personal y conservador; no debe usarse para spam, mensajes masivos, outreach automatizado, vigilancia ni automatización abusiva.

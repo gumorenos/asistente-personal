@@ -2,103 +2,101 @@
 
 Updated: 2026-08-18 (America/Lima)
 
-Este archivo es la fuente de verdad del QA que requiere una sesión real de WhatsApp/Raspberry Pi o condiciones operativas que no deben darse por aprobadas únicamente por tests automatizados.
+Este archivo es la fuente de verdad del QA que requiere una sesión real, infraestructura externa o condiciones operativas que no deben darse por aprobadas únicamente por tests automatizados. El desarrollo puede continuar mientras estos checks permanecen pendientes.
 
 ## Stage 1 — automated development gates completed
 
 - [x] Instalación reproducible con `package-lock.json` y `npm ci`.
 - [x] TypeScript strict / `tsc --noEmit` pasa en Node 22.18.
-- [x] Suite automatizada incluye core, SQLite, capabilities, scheduler, configuración, PN/LID guard y health/readiness.
-- [x] Notas: crear, listar y completar/archivar mediante transición de estado.
-- [x] Gastos: PEN, decimal punto/coma, categoría al crear, recategorización, rango local y resumen por categoría.
-- [x] Recordatorios: sin fecha, `hoy`, `mañana`, duración relativa, weekday y fecha explícita.
-- [x] Fecha/hora inválida o pasada no se degrada silenciosamente a reminder sin fecha.
-- [x] Scheduler entrega una vez y conserva `pending` ante falla para reintento.
-- [x] Mutaciones y entrega de reminder quedan en `audit_log`.
-- [x] Configuración rechaza timezone, booleanos, teléfonos y JIDs inválidos.
-- [x] Group JIDs no pueden entrar en `WHATSAPP_SELF_JIDS`.
-- [x] Self-chat guard rechaza allowlist vacía, terceros, incoming no-fromMe y grupos.
-- [x] PN/LID alternativo se canonicaliza al JID que efectivamente pasó la allowlist.
-- [x] Outbound guard rechaza terceros antes incluso de comprobar el estado de conexión.
-- [x] `/healthz` y `/readyz` tienen tests HTTP automatizados.
-- [x] `npm audit --omit=dev --audit-level=high` pasa.
-- [x] Docker `linux/amd64` build pasa.
-- [x] Docker `linux/arm64` build pasa (target Raspberry Pi 5).
+- [x] Suite automatizada cubre core, SQLite, capabilities, scheduler, configuración, PN/LID guard y health/readiness.
+- [x] Notas: crear/listar/completar/archivar.
+- [x] Gastos: PEN, categorías, recategorización, rangos y resumen.
+- [x] Recordatorios: sin fecha, relativos, hoy/mañana, weekday y fecha explícita.
+- [x] Scheduler reintenta fallas y audita entrega.
+- [x] Config/JIDs/input bounds validados.
+- [x] `/healthz` y `/readyz` con tests HTTP.
+- [x] Runtime dependency audit pasa.
+- [x] Docker `linux/amd64` y `linux/arm64` pasan.
 
 Resultado automatizado de cierre de Stage 1: **26 tests + typecheck + runtime audit + multi-arch Docker gates**.
 
-## WhatsApp pairing and session persistence — manual / release-blocking
+## Stage 1 — WhatsApp pairing/session — manual / release-blocking
 
-- [ ] Desplegar primero en un entorno no crítico o con un número de prueba.
-- [ ] Configurar `WHATSAPP_ENABLED=true` y `WHATSAPP_PHONE_NUMBER` en formato E.164 solo dígitos.
-- [ ] Dejar inicialmente `WHATSAPP_SELF_JIDS` vacío y confirmar que ningún mensaje es procesado ni respondido.
-- [ ] Confirmar que el pairing code permite vincular el dispositivo.
-- [ ] Confirmar que credenciales y Signal keys quedan en SQLite y no aparece una carpeta de auth JSON de Baileys.
-- [ ] Reiniciar el proceso y verificar reconexión sin pairing code nuevo.
-- [ ] Reiniciar físicamente el Raspberry Pi y verificar reconexión sin pairing code nuevo.
-- [ ] Desvincular el dispositivo desde WhatsApp y confirmar estado `logged_out` sin reconnect loop.
-- [ ] Simular pérdida/restauración de red y confirmar reconexión sin respuestas duplicadas.
+- [ ] Desplegar primero en entorno no crítico o con número de prueba.
+- [ ] Configurar `WHATSAPP_ENABLED=true` y teléfono E.164 solo dígitos.
+- [ ] Con `WHATSAPP_SELF_JIDS` vacío confirmar cero procesamiento/respuestas.
+- [ ] Confirmar pairing code y vinculación.
+- [ ] Confirmar credenciales/Signal keys en SQLite sin auth JSON folder.
+- [ ] Reiniciar proceso y reconectar sin pairing code nuevo.
+- [ ] Reiniciar físicamente RPi y reconectar.
+- [ ] Desvincular desde WhatsApp -> `logged_out` sin reconnect loop.
+- [ ] Simular pérdida/restauración de red sin respuestas duplicadas.
 
-## Self-chat authorization — manual / release-blocking
+## Stage 1 — self-chat authorization — manual / release-blocking
 
-- [ ] Con allowlist vacía, comprobar que logs pueden mostrar identidad proveniente de configuración/sesión, pero no “descubren” JIDs observando mensajes.
-- [ ] Enviar un mensaje desde la cuenta a un tercero mientras la allowlist está vacía y confirmar que no se registra como self-JID candidato ni produce respuesta.
-- [ ] Configurar manualmente el PN confiable (`@s.whatsapp.net`).
-- [ ] Si WhatsApp expone LID para la cuenta, validarlo antes de añadirlo a la allowlist.
-- [ ] Confirmar `ping` → exactamente un `pong` en self-chat.
-- [ ] Confirmar `estado` y `ayuda`.
-- [ ] Confirmar que el echo del propio `pong` no genera loop.
-- [ ] Enviar un mensaje normal a otra persona y confirmar que el asistente no responde a esa persona.
-- [ ] Recibir un mensaje de otra persona y confirmar que no se procesa/persiste en Stage 1.
-- [ ] Enviar un mensaje en un grupo y confirmar que no se procesa/persiste.
-- [ ] Validar un caso real donde WhatsApp entregue PN/LID alternativos y confirmar reply por el JID autorizado.
+- [ ] Validar PN confiable y, si aplica, LID antes de añadirlo a allowlist.
+- [ ] `ping` -> exactamente un `pong`.
+- [ ] `estado` y `ayuda` funcionan.
+- [ ] Echo del propio reply no genera loop.
+- [ ] Mensajes a/de terceros no se procesan ni responden.
+- [ ] Grupos no se procesan/persisten.
+- [ ] Caso PN/LID alternativo real responde por el JID autorizado.
 
-## Stage 1 commands — manual on real self-chat
+## Stage 1 — commands on real self-chat
 
-- [ ] `anota comprar filtro de agua` y `notas`.
-- [ ] `completa nota #<id>` y `archiva nota #<id>`.
-- [ ] `gasté S/ 78.50 en taxi #transporte` y `gastos`.
-- [ ] `categoriza gasto #<id> como transporte`.
-- [ ] `gastos hoy`, `gastos semana`, `gastos mes` y `resumen gastos mes` con montos reales.
-- [ ] `recuérdame en 2 minutos prueba` se entrega una sola vez.
-- [ ] `recuérdame mañana a las 10 ...` resuelve a America/Lima correctamente.
-- [ ] `recuérdame viernes a las 16 ...` resuelve el próximo viernes correcto.
-- [ ] Fecha/hora imposible (por ejemplo 25:00) se rechaza y no crea reminder.
-- [ ] `cancela recordatorio #<id>` evita una entrega posterior.
-- [ ] Reiniciar entre creación y vencimiento; el reminder persiste y se entrega.
-- [ ] Cortar red al vencer; permanece pending y se entrega tras recuperar conectividad.
-- [ ] Reminder sin fecha permanece pendiente y no se envía espontáneamente.
-- [ ] Validar boundary de medianoche de `hoy`/`mañana` en America/Lima.
-- [ ] Confirmar tildes/capitalización en descripciones y notas reales.
+- [ ] Crear/listar/completar/archivar notas.
+- [ ] Capturar/categorizar/listar/resumir gastos reales.
+- [ ] Crear recordatorio corto y confirmar entrega única.
+- [ ] Validar `mañana`, weekday y fechas explícitas en America/Lima.
+- [ ] Cancelar reminder y comprobar que no se entrega.
+- [ ] Reiniciar entre creación/vencimiento y comprobar persistencia.
+- [ ] Vencer offline y comprobar reintento tras recuperar red.
+- [ ] Reminder sin fecha no se envía espontáneamente.
+- [ ] Boundary de medianoche y tildes/capitalización reales.
+
+## Stage 2A — AI provider — manual / external QA
+
+- [ ] Con `AI_ENABLED=false`, `ia hola` responde localmente que IA está deshabilitada y no hay tráfico de red.
+- [ ] Configurar un endpoint OpenAI-compatible de prueba con modelo/API key no críticos.
+- [ ] Confirmar que `ia hola` produce exactamente una llamada a `/chat/completions`.
+- [ ] Confirmar mediante logs/proxy del proveedor que un mensaje normal sin prefijo `ia`/`ai` no genera tráfico externo.
+- [ ] Confirmar que `anota`, `gastos`, `recordatorios`, `ping`, `estado` y `ayuda` no generan tráfico al proveedor.
+- [ ] Verificar que la petición contiene solo system prompt fijo + prompt explícito actual, sin historial, notas, gastos ni recordatorios.
+- [ ] Revisar `audit_log`: debe registrar provider/model/tamaños, nunca prompt ni respuesta.
+- [ ] Revisar logs del proceso: `AI_API_KEY`, prompt y respuesta no deben aparecer por defecto.
+- [ ] Simular HTTP 401/429/500 y confirmar respuesta segura sin body remoto ni ejecución de acciones.
+- [ ] Simular timeout y confirmar error local seguro.
+- [ ] Probar límites `AI_MAX_INPUT_CHARS`, `AI_MAX_REPLY_CHARS` y `AI_MAX_OUTPUT_TOKENS`.
+- [ ] Confirmar que output que parezca un comando (`anota ...`, `recuérdame ...`) se devuelve como texto y NO se ejecuta.
+- [ ] Medir latencia/costo del proveedor elegido antes de habilitarlo para uso diario.
+- [ ] Revisar política de retención/privacidad del proveedor elegido antes de enviar información sensible.
 
 ## Health / operations — manual
 
-- [ ] `/healthz` devuelve 200 en el deployment real.
-- [ ] `/readyz` refleja DB/transport correctamente durante startup, conexión y degradación.
-- [ ] Puerto health accesible localmente pero no públicamente desde router/Cloudflare.
-- [ ] SIGTERM/SIGINT detiene scheduler, transport, health server y SQLite limpiamente.
-- [ ] Confirmar recuperación WAL/SHM después de kill no limpio.
-- [ ] Confirmar permisos efectivos del directorio/base en filesystem real del RPi.
-- [ ] Crear backup local y restaurarlo en copia descartable; verificar migraciones y conteos.
-- [ ] Confirmar uso de memoria/CPU razonable durante operación sostenida en RPi5.
+- [ ] `/healthz` 200 en deployment real.
+- [ ] `/readyz` refleja DB/transport durante startup/conexión/degradación.
+- [ ] Puerto health no expuesto públicamente.
+- [ ] SIGTERM/SIGINT cierra scheduler, transport, health y SQLite.
+- [ ] Recuperación WAL/SHM después de kill no limpio.
+- [ ] Permisos reales de directorio/DB en RPi.
+- [ ] Backup/restore sobre copia descartable y verificación de row counts/migrations.
+- [ ] Consumo CPU/RAM estable durante al menos 24h.
 
-## Baileys reliability — required before Observer mode
+## Baileys reliability gaps before Observer mode
 
-- [ ] Implementar store persistente de mensaje raw para `getMessage()`; Stage 1 devuelve `undefined` porque no necesita recuperación de mensajes para su alcance.
-- [ ] Validar resend/missing-message antes de depender de recuperación de mensajes.
-- [ ] Validar la release pinneada contra WhatsApp Web antes de cualquier upgrade.
-- [ ] Revisar upgrades de Baileys por separado; nunca auto-upgrade de versiones sensibles al protocolo.
+- [ ] Persisted raw WhatsApp message store para `getMessage()`.
+- [ ] Validar resend/missing-message recovery.
+- [ ] Validar versión Baileys fijada contra comportamiento real actual.
+- [ ] Revisar upgrades de Baileys separadamente; no auto-upgrade.
 
-## Privacy/security prerequisites for later stages
+## Privacy/security before non-self chats or external writes
 
-- [ ] Diseñar allowlist de chats antes de Observer.
-- [ ] Añadir política/jobs de retención antes de almacenar conversaciones no-self.
-- [ ] Decidir cifrado de DB/backups para despliegue sostenido.
-- [ ] Implementar modelo de approvals antes de Calendar u otra escritura externa.
-- [ ] Añadir tests que prueben que mensajería a terceros exige aprobación antes de implementar esa capability.
+- [ ] Chat-level allowlist y workflow administrativo.
+- [ ] Retention/purge jobs.
+- [ ] Decidir cifrado de SQLite/backups.
+- [ ] Action-approval model antes de Calendar.
+- [ ] Tests que prueben que third-party outbound no ocurre sin aprobación.
 
-## Stage 1 closure status
+## Stop point for risky features
 
-**Desarrollo Stage 1: CERRADO.**
-
-Lo pendiente arriba es QA de integración/despliegue real y prerequisites de etapas futuras. No habilitar Observer, respuestas a terceros, Calendar ni agentes externos hasta implementar y validar sus respectivos boundaries de seguridad.
+Stage 1 está cerrado a nivel de desarrollo pero su QA real sigue pendiente. Stage 2A puede desarrollarse en paralelo porque no amplía el perímetro de WhatsApp ni habilita acciones externas. **Observer, respuestas a terceros y Calendar writes siguen bloqueados hasta implementar sus boundaries de autorización.**

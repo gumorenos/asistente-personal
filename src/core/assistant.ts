@@ -1,4 +1,4 @@
-import type { Capability } from '../capabilities/types.ts';
+import type { Capability, CapabilityResult } from '../capabilities/types.ts';
 import type { MessageRepository } from '../database/message-repository.ts';
 import type { MessageTransport } from '../transports/types.ts';
 import { logger } from './logger.ts';
@@ -32,7 +32,7 @@ export class AssistantCore {
       return;
     }
 
-    let route;
+    let route: CapabilityResult | undefined;
     for (const capability of this.capabilities) {
       route = await capability.handle(message);
       if (route) break;
