@@ -1,9 +1,11 @@
 import type { AppDatabase } from './db.ts';
 
+export type NoteStatus = 'active' | 'completed' | 'archived';
+
 export interface NoteRecord {
   id: number;
   body: string;
-  status: string;
+  status: NoteStatus;
   createdAt: string;
 }
 
@@ -30,7 +32,7 @@ export class NoteRepository {
         ORDER BY id DESC
         LIMIT ?
       `)
-      .all(limit) as Array<{ id: number; body: string; status: string; created_at: string }>;
+      .all(limit) as Array<{ id: number; body: string; status: NoteStatus; created_at: string }>;
 
     return rows.map((row) => ({
       id: row.id,
@@ -38,5 +40,16 @@ export class NoteRepository {
       status: row.status,
       createdAt: row.created_at,
     }));
+  }
+
+  setStatus(id: number, status: Exclude<NoteStatus, 'active'>): boolean {
+    const result = this.database.native
+      .prepare(`
+        UPDATE notes
+        SET status = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status = 'active'
+      `)
+      .run(status, id);
+    return result.changes === 1;
   }
 }

@@ -10,6 +10,7 @@ import type { AppDatabase } from '../../database/db.ts';
 import type { MessageRepository } from '../../database/message-repository.ts';
 import type { IncomingMessageHandler, MessageTransport } from '../types.ts';
 import { normalizeWhatsAppMessage } from './normalize-message.ts';
+import { resolveAllowedSelfChat } from './self-chat-guard.ts';
 import { useSqliteAuthState } from './sqlite-auth-state.ts';
 
 export interface WhatsAppTransportConfig {
@@ -38,6 +39,10 @@ function createSilentBaileysLogger(): never {
   return silent as never;
 }
 
+function configuredPhoneJid(phoneNumber?: string): string | undefined {
+  return phoneNumber ? `${phoneNumber}@s.whatsapp.net` : undefined;
+}
+
 export class BaileysWhatsAppTransport implements MessageTransport {
   readonly name = 'whatsapp-baileys';
 
@@ -48,7 +53,6 @@ export class BaileysWhatsAppTransport implements MessageTransport {
   private stopping = false;
   private reconnectTimer?: NodeJS.Timeout;
   private readonly selfJids: Set<string>;
-  private readonly discoveredJids = new Set<string>();
   private readonly config: WhatsAppTransportConfig;
   private readonly database: AppDatabase;
   private readonly messages: MessageRepository;
@@ -146,6 +150,12 @@ export class BaileysWhatsAppTransport implements MessageTransport {
           automaticReplies: this.selfJids.size > 0,
           ownSocketId: socket.user?.id,
         });
+        if (this.selfJids.size === 0) {
+          logger.warn('WHATSAPP_SELF_JIDS is empty; all inbound processing and outbound messages remain disabled', {
+            configuredPhoneJid: configuredPhoneJid(this.config.phoneNumber),
+            ownSocketId: socket.user?.id,
+          });
+        }
       }
 
       if (connection === 'close') {
@@ -173,22 +183,11 @@ export class BaileysWhatsAppTransport implements MessageTransport {
   }
 
   private async handleRawMessage(raw: WAMessage): Promise<void> {
-    const message = normalizeWhatsAppMessage(raw);
-    if (!message || !message.fromMe || message.isGroup) return;
-    if (this.messages.isAssistantOutbound(message.id)) return;
+    const normalized = normalizeWhatsAppMessage(raw);
+    if (!normalized || this.messages.isAssistantOutbound(normalized.id)) return;
 
-    if (this.selfJids.size === 0) {
-      for (const jid of [message.chatId, message.chatIdAlt].filter((value): value is string => Boolean(value))) {
-        if (!this.discoveredJids.has(jid)) {
-          this.discoveredJids.add(jid);
-          logger.warn('Self-chat allowlist not configured; candidate JID observed but message was NOT processed', { jid });
-        }
-      }
-      return;
-    }
-
-    const allowed = this.selfJids.has(message.chatId) || (message.chatIdAlt ? this.selfJids.has(message.chatIdAlt) : false);
-    if (!allowed) return;
+    const message = resolveAllowedSelfChat(normalized, this.selfJids);
+    if (!message) return;
 
     if (this.config.logMessageContent) {
       logger.debug('Accepted self-chat message', { messageId: message.id, text: message.text });

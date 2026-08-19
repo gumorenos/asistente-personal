@@ -89,6 +89,17 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
         WHERE status = 'pending' AND due_at IS NOT NULL;
     `,
   },
+  {
+    version: 3,
+    sql: `
+      CREATE INDEX IF NOT EXISTS idx_expenses_occurred_at
+        ON expenses(occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_expenses_category_occurred
+        ON expenses(category, occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_audit_created_at
+        ON audit_log(created_at DESC);
+    `,
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): void {

@@ -17,7 +17,7 @@ export function routeMessage(message: IncomingMessage): RouteResult {
   if (['estado', '/estado', 'status'].includes(text)) {
     return {
       handled: true,
-      reply: '✅ Asistente activo. Etapa 1: self-chat, notas, gastos y recordatorios locales.',
+      reply: '✅ Asistente activo. Stage 1: self-chat seguro, notas, gastos y recordatorios locales.',
     };
   }
 
@@ -25,24 +25,27 @@ export function routeMessage(message: IncomingMessage): RouteResult {
     return {
       handled: true,
       reply: [
-        'Comandos disponibles en esta etapa:',
-        '• ping',
-        '• estado',
-        '• ayuda',
-        '• anota <texto>',
-        '• notas',
-        '• gasté <monto> soles en <descripción>',
-        '• gastos',
-        '• recuérdame mañana a las <hora> <texto>',
+        'Comandos Stage 1:',
+        '• anota <texto> / notas',
+        '• completa nota #<id> / archiva nota #<id>',
+        '• gasté <monto> en <descripción> #<categoría>',
+        '• categoriza gasto #<id> como <categoría>',
+        '• gastos [hoy|semana|mes]',
+        '• resumen gastos [hoy|semana|mes]',
+        '• recuérdame en 30 minutos <texto>',
+        '• recuérdame mañana a las 10 <texto>',
+        '• recuérdame viernes a las 16 <texto>',
         '• recordatorios',
+        '• completa recordatorio #<id> / cancela recordatorio #<id>',
+        '• ping / estado / ayuda',
         '',
-        'Calendar, audio, IA y Observer siguen deshabilitados.',
+        'IA, Calendar, audio, Observer y agentes externos siguen deshabilitados.',
       ].join('\n'),
     };
   }
 
   return {
     handled: true,
-    reply: 'Mensaje recibido y guardado. Por ahora prueba “ayuda”, “estado” o “ping”.',
+    reply: 'Mensaje recibido y guardado. Escribe “ayuda” para ver los comandos disponibles.',
   };
 }

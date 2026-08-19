@@ -4,10 +4,11 @@ import { loadConfig } from './config.ts';
 import { AssistantCore } from './core/assistant.ts';
 import { logger } from './core/logger.ts';
 import type { AssistantStatus } from './core/types.ts';
+import { AuditRepository } from './database/audit-repository.ts';
 import { AppDatabase } from './database/db.ts';
+import { ExpenseRepository } from './database/expense-repository.ts';
 import { MessageRepository } from './database/message-repository.ts';
 import { NoteRepository } from './database/note-repository.ts';
-import { ExpenseRepository } from './database/expense-repository.ts';
 import { ReminderRepository } from './database/reminder-repository.ts';
 import { ReminderScheduler } from './scheduler/reminder-scheduler.ts';
 import { DisabledTransport } from './transports/disabled.ts';
@@ -20,6 +21,7 @@ const messages = new MessageRepository(database);
 const notes = new NoteRepository(database);
 const expenses = new ExpenseRepository(database);
 const reminders = new ReminderRepository(database);
+const audit = new AuditRepository(database);
 
 let transport: MessageTransport;
 if (config.whatsapp.enabled) {
@@ -28,9 +30,9 @@ if (config.whatsapp.enabled) {
   transport = new DisabledTransport();
 }
 
-const capabilities = new LocalCapabilities(notes, reminders, expenses, config.timeZone);
+const capabilities = new LocalCapabilities(notes, reminders, expenses, audit, config.timeZone);
 const core = new AssistantCore(transport, messages, capabilities);
-const reminderScheduler = new ReminderScheduler(reminders, transport);
+const reminderScheduler = new ReminderScheduler(reminders, transport, () => new Date(), audit);
 transport.onMessage((message) => core.handleIncoming(message));
 
 let appState: AssistantStatus['state'] = 'starting';

@@ -1,5 +1,7 @@
 import type { AppDatabase } from './db.ts';
 
+export type ReminderStatus = 'pending' | 'delivered' | 'completed' | 'cancelled';
+
 export interface ReminderInput {
   body: string;
   dueAt?: string;
@@ -8,7 +10,7 @@ export interface ReminderInput {
 
 export interface ReminderRecord extends ReminderInput {
   id: number;
-  status: string;
+  status: ReminderStatus;
   deliveredAt?: string;
 }
 
@@ -38,14 +40,7 @@ export class ReminderRepository {
         ORDER BY CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at ASC, id DESC
         LIMIT ?
       `)
-      .all(limit) as Array<{
-        id: number;
-        body: string;
-        due_at: string | null;
-        chat_id: string;
-        status: string;
-        delivered_at: string | null;
-      }>;
+      .all(limit) as RawReminderRow[];
     return rows.map(mapRow);
   }
 
@@ -61,41 +56,48 @@ export class ReminderRepository {
         ORDER BY due_at ASC, id ASC
         LIMIT ?
       `)
-      .all(nowIso, limit) as Array<{
-        id: number;
-        body: string;
-        due_at: string | null;
-        chat_id: string;
-        status: string;
-        delivered_at: string | null;
-      }>;
+      .all(nowIso, limit) as RawReminderRow[];
     return rows.map(mapRow);
   }
 
-  markDelivered(id: number, deliveredAt: string): void {
-    this.database.native
+  markDelivered(id: number, deliveredAt: string): boolean {
+    const result = this.database.native
       .prepare(`
         UPDATE reminders
         SET delivered_at = ?, status = 'delivered', updated_at = CURRENT_TIMESTAMP
         WHERE id = ? AND status = 'pending'
       `)
       .run(deliveredAt, id);
+    return result.changes === 1;
+  }
+
+  setStatus(id: number, status: 'completed' | 'cancelled'): boolean {
+    const result = this.database.native
+      .prepare(`
+        UPDATE reminders
+        SET status = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ? AND status = 'pending'
+      `)
+      .run(status, id);
+    return result.changes === 1;
   }
 }
 
-function mapRow(row: {
+interface RawReminderRow {
   id: number;
   body: string;
   due_at: string | null;
-  chat_id: string;
-  status: string;
+  chat_id: string | null;
+  status: ReminderStatus;
   delivered_at: string | null;
-}): ReminderRecord {
+}
+
+function mapRow(row: RawReminderRow): ReminderRecord {
   return {
     id: row.id,
     body: row.body,
     dueAt: row.due_at ?? undefined,
-    chatId: row.chat_id,
+    chatId: row.chat_id ?? '',
     status: row.status,
     deliveredAt: row.delivered_at ?? undefined,
   };
