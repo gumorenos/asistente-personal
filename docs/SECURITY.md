@@ -1,29 +1,44 @@
 # Security model
 
-## Current rules
+## Stage 1 rules
 
-1. **No automatic third-party messaging.** Stage 0 transport refuses all destinations outside `WHATSAPP_SELF_JIDS`.
-2. **No ambient observation.** Only explicitly configured self-chat JIDs are processed.
-3. **No message body logging by default.** `LOG_MESSAGE_CONTENT=false` is the default.
-4. **No full history sync.** Baileys starts with `syncFullHistory=false`.
-5. **No online-presence takeover.** `markOnlineOnConnect=false` is used so the linked client does not intentionally suppress phone notifications.
-6. **Auth state in SQLite.** Credentials and signal keys are not written as Baileys multi-file JSON state.
-7. **Local health endpoint.** Docker publishes port 8787 only on `127.0.0.1` by default.
-8. **Data directory permissions.** The application attempts to keep its data directory at mode `0700`.
+1. **No automatic third-party messaging.** El transporte rechaza cualquier destino fuera de `WHATSAPP_SELF_JIDS`.
+2. **No ambient observation.** Stage 1 solo procesa el self-chat autorizado.
+3. **No message-based identity discovery.** Con la allowlist vacía se ignora todo mensaje; un mensaje que tú envíes a otra persona no puede convertirse en identidad propia candidata.
+4. **Canonical authorized destination.** Si WhatsApp entrega PN/LID alternativos, el core usa como destino el JID que realmente coincidió con la allowlist.
+5. **No message body logging by default.** `LOG_MESSAGE_CONTENT=false`.
+6. **No full history sync.** Baileys usa `syncFullHistory=false`.
+7. **No online-presence takeover.** `markOnlineOnConnect=false`.
+8. **Auth state in SQLite.** Credenciales y Signal keys no se guardan mediante el multi-file JSON state de ejemplo de Baileys.
+9. **Local health endpoint.** Docker publica 8787 únicamente en `127.0.0.1` por defecto.
+10. **Data directory permissions.** La app intenta mantener el directorio de datos con modo `0700`.
+11. **Validated configuration.** Timezone, booleanos, teléfono y formatos de self-JID se validan al iniciar; grupos y JIDs malformados son rechazados.
+12. **Bounded commands.** Los comandos locales excesivamente largos se rechazan.
+13. **Soft lifecycle transitions.** Notas y recordatorios cambian de estado; Stage 1 no implementa borrado destructivo mediante comandos de chat.
+14. **Mutation audit.** Creación/cambio de estado/categoría/entrega se registra sin duplicar cuerpos sensibles en metadata del audit log.
+15. **Locked dependencies.** CI y Docker usan `package-lock.json` + `npm ci`, y CI ejecuta audit de dependencias de runtime con umbral `high`.
 
 ## Important limitation
 
-Baileys uses WhatsApp Web's protocol and is not the official Meta WhatsApp Business API. Account restrictions or protocol breakage remain possible. Do not use this project for bulk messaging, unsolicited messaging, scraping, stalking, or automated outreach.
+Baileys usa el protocolo de WhatsApp Web y no la API oficial de Meta WhatsApp Business. Sigue existiendo riesgo de rotura de protocolo o restricciones de cuenta. No usar este proyecto para bulk messaging, unsolicited messaging, scraping, stalking o automated outreach.
 
 ## Secrets
 
-The SQLite database contains sensitive WhatsApp authentication material. Treat `data/assistant.db`, its WAL/SHM files, and every backup as secrets.
+La base SQLite contiene material sensible de autenticación de WhatsApp. Trata como secretos:
 
-Before remote backups are enabled, add encryption at rest or an encrypted backup target. Never commit `.env` or the `data/` database files.
+- `data/assistant.db`;
+- archivos WAL/SHM;
+- `.env`;
+- cualquier backup de la base;
+- pairing codes mientras estén vigentes.
 
-## Future permission levels
+Antes de habilitar backups remotos, usar cifrado en reposo o un destino de backup cifrado. Nunca commitear `.env` ni archivos de `data/`.
 
-- Level 0: local read/summarize.
-- Level 1: local notes/reminders/expenses.
-- Level 2: external state changes such as Calendar; confirmation required.
-- Level 3: communication to third parties; explicit confirmation required every time.
+## Permission levels for future stages
+
+- **Level 0:** lectura/resumen local.
+- **Level 1:** notas, recordatorios y gastos locales — implementado en Stage 1.
+- **Level 2:** modificaciones externas como Calendar — requerirá confirmación explícita.
+- **Level 3:** comunicación a terceros — requerirá confirmación explícita cada vez.
+
+Stage 1 no implementa Level 2 ni Level 3.

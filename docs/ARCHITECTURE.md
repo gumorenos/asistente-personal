@@ -2,9 +2,9 @@
 
 ## Goal
 
-Build a personal assistant whose initial interface is WhatsApp, without making OpenClaw, Claude Code, Codex, or any other agent framework a required dependency.
+Construir un asistente personal cuyo primer transporte sea WhatsApp sin convertir OpenClaw, Claude Code, Codex ni ningún framework de agentes en una dependencia del producto.
 
-## Stage 0 data flow
+## Stage 1 data flow
 
 ```text
 WhatsApp personal
@@ -13,58 +13,99 @@ WhatsApp personal
 BaileysWhatsAppTransport
       |
       v
-IncomingMessage normalizer
+normalizer PN/LID
+      |
+      v
+self-chat guard
+(fromMe + no group + allowlist)
+      |
+      v
+canonical authorized JID
       |
       v
 AssistantCore
       |
-      +--> MessageRepository --> SQLite
+      +--> MessageRepository ------> SQLite
+      |
+      +--> LocalCapabilities
+      |      |
+      |      +--> notes
+      |      +--> reminders -------> ReminderScheduler
+      |      +--> expenses
+      |      +--> audit
       |
       +--> deterministic router
       |
       v
-self-chat reply only
+same authorized self-chat only
 ```
 
 ## Boundaries
 
 ### MessageTransport
 
-`AssistantCore` knows only the `MessageTransport` interface. Baileys is an adapter. A future Telegram, HTTP, official WhatsApp Business, or test adapter can replace it without changing the core.
+`AssistantCore` conoce únicamente la interfaz `MessageTransport`. Baileys es un adapter. Telegram, HTTP, una futura API oficial u otro transporte pueden añadirse sin reescribir el core.
 
 ### Self-chat safety boundary
 
-Stage 0 accepts only messages that:
+Stage 1 solo acepta un mensaje cuando:
 
-1. are `fromMe=true`;
-2. are not group messages;
-3. match one of the explicitly configured `WHATSAPP_SELF_JIDS` using either primary or alternate JID.
+1. `fromMe=true`;
+2. no es un grupo;
+3. el JID primario o alternativo coincide con un valor configurado en `WHATSAPP_SELF_JIDS`.
 
-`sendText()` enforces the same allowlist. It refuses to send to any other destination, even if another part of the application requests it.
+Si la coincidencia ocurre mediante el JID alternativo, ese JID autorizado pasa a ser el `chatId` canónico usado por el core, replies y recordatorios. Así una entrada aceptada nunca puede provocar una salida hacia un identificador que no pasó la allowlist.
 
-If `WHATSAPP_SELF_JIDS` is empty, the adapter may log candidate own JIDs but processes no message and sends no reply.
+`sendText()` aplica nuevamente la misma allowlist. Esto implementa defensa en profundidad.
+
+Con la allowlist vacía no existe descubrimiento basado en mensajes: la aplicación ignora todo el tráfico y no responde.
 
 ### Persistence
 
-SQLite stores:
+SQLite almacena:
 
-- normalized messages;
-- assistant outbound message IDs, to prevent reply loops;
-- future notes/reminders/expenses tables;
-- audit log;
-- Baileys credentials and signal keys.
+- mensajes normalizados aceptados;
+- IDs de mensajes outbound del asistente para prevenir loops;
+- notas y estados;
+- recordatorios, destino autorizado y estado de entrega;
+- gastos, categorías y timestamps;
+- audit log de mutaciones;
+- credenciales y Signal keys de Baileys.
 
-Baileys authentication state is stored in SQLite rather than `useMultiFileAuthState`.
+El audit log registra tipo de acción, entidad e información operacional mínima; no copia el cuerpo de notas o recordatorios en metadata de auditoría.
 
-## Out of scope for Stage 0
+### Deterministic Stage 1 capabilities
 
-- AI/LLM calls;
-- observing third-party chats;
-- groups;
-- automatic replies to third parties;
+Stage 1 no necesita LLM. El parser local soporta comandos explícitos y fechas deterministas. Fechas/horas inválidas o pasadas en expresiones programadas son rechazadas en vez de convertirse silenciosamente en recordatorios sin fecha.
+
+### Reminder delivery
+
+Los recordatorios pendientes se consultan desde SQLite. Una entrega exitosa cambia el estado a `delivered` y queda auditada. Una falla de transporte no cambia el estado, por lo que el scheduler puede reintentar en la siguiente ejecución.
+
+## Release gates
+
+El CI ejecuta:
+
+```text
+npm ci
+  -> typecheck
+  -> tests
+  -> runtime dependency audit
+  -> Docker amd64
+  -> Docker arm64
+```
+
+ARM64 es un gate explícito porque el destino inicial es Raspberry Pi 5.
+
+## Out of scope for Stage 1
+
+- AI/LLM;
+- observación de chats de terceros;
+- respuestas automáticas a terceros;
+- grupos;
 - Calendar;
-- audio transcription;
-- document analysis;
-- OpenClaw/Claude Code/Codex integrations.
+- audio/transcripción;
+- documentos;
+- OpenClaw/Claude Code/Codex.
 
-Those features must be added behind independent capability or integration boundaries.
+Esas capacidades deben añadirse detrás de boundaries independientes en etapas posteriores.
