@@ -4,7 +4,7 @@
 
 Construir un asistente personal cuyo primer transporte sea WhatsApp sin convertir OpenClaw, Claude Code, Codex ni ningún framework de agentes en una dependencia del producto.
 
-## Stage 2A data flow
+## Stage 2 data flow
 
 ```text
 WhatsApp personal
@@ -15,6 +15,8 @@ BaileysWhatsAppTransport
       v
 normalizer PN/LID -> self-chat guard -> canonical authorized JID
       |
+      +-- audio autorizado --> lazy media loader
+      |
       v
 AssistantCore
       |
@@ -24,9 +26,9 @@ AssistantCore
       |      |
       |      +--> LocalCapabilities --------------> notes/reminders/expenses/audit
       |      |
+      |      +--> AudioTranscriptionCapability ---> TranscriptionProvider
+      |      |
       |      +--> AiCapability (explicit `ia`) ---> AiProvider
-      |                                              |
-      |                                              +--> OpenAI-compatible HTTPS endpoint
       |
       +--> deterministic router
       |
@@ -34,45 +36,45 @@ AssistantCore
 same authorized self-chat only
 ```
 
-## Boundaries
+## Capability boundary
 
-### MessageTransport
+`AssistantCore` procesa una lista ordenada de `Capability`. Las capacidades locales siguen primero. IA y transcripción son adapters separados, opcionales y no reciben acceso al transporte para ejecutar acciones.
 
-`AssistantCore` conoce únicamente la interfaz `MessageTransport`. Baileys es un adapter y sigue siendo reemplazable.
+## Stage 2A — AI provider boundary
 
-### Capability boundary
+`AiProvider` abstrae el proveedor de texto. La implementación inicial usa `/chat/completions` mediante `fetch` nativo.
 
-Stage 2A reemplaza la dependencia directa del core hacia `LocalCapabilities` por una lista ordenada de `Capability`. Las capacidades locales se evalúan primero y siguen siendo deterministas. La IA es una capacidad separada, no una dependencia del core.
+- `AI_ENABLED=false` por defecto.
+- solo `ia`/`ai` explícito invoca al proveedor;
+- no hay fallback automático;
+- solo salen system prompt fijo + prompt actual;
+- output solo texto, sin tool/function calling;
+- HTTPS remoto, timeout y límites;
+- audit sin prompt/respuesta.
 
-Una capability puede devolver una respuesta de texto, pero no recibe acceso al transporte ni a otras capabilities. En Stage 2A la capability de IA no tiene herramientas ni funciones para modificar estado externo.
+## Stage 2B — transcription boundary
 
-### AI provider boundary
+`TranscriptionProvider` abstrae la transcripción. La implementación inicial usa `/audio/transcriptions` con `FormData` y `fetch` nativo.
 
-`AiProvider` abstrae el proveedor. La implementación inicial usa el contrato HTTP OpenAI-compatible `/chat/completions` mediante `fetch` nativo, sin SDK adicional.
+El transporte adjunta `loadMedia()` únicamente **después** de que el mensaje haya pasado `resolveAllowedSelfChat`. La capability de transcripción decide si descarga:
 
-Reglas Stage 2A:
+1. si está deshabilitada, no llama al loader;
+2. si WhatsApp declara `fileLength` por encima del límite, rechaza antes de descargar;
+3. si descarga, vuelve a validar los bytes reales antes de subir;
+4. el buffer vive en memoria durante la llamada y no se persiste como archivo;
+5. el transcript se devuelve al self-chat como texto y no vuelve al router.
 
-1. `AI_ENABLED=false` por defecto.
-2. Solo `ia <texto>` o `ai <texto>` invoca al proveedor.
-3. Texto normal, notas, gastos y recordatorios nunca se envían a IA.
-4. Solo se envían el prompt explícito actual y un system prompt fijo; no se envía historial, SQLite, notas, gastos ni recordatorios.
-5. El output del modelo es texto. No se interpreta como comando ni dispara acciones.
-6. Endpoint remoto requiere HTTPS; HTTP solo se permite para loopback.
-7. Errores HTTP no incorporan el body remoto a logs/respuestas.
-8. Audit registra proveedor, modelo y tamaños, pero no el prompt ni la respuesta.
-9. Input/output tienen límites configurables y timeout.
+Por tanto, una transcripción que contenga sintaxis de comandos no puede crear notas, reminders, gastos ni acciones por sí sola.
 
-### Self-chat safety boundary
+## Self-chat safety boundary
 
-Se mantienen sin cambios las garantías Stage 1: `fromMe=true`, no grupos, allowlist PN/LID, canonicalización al JID realmente autorizado y outbound guard independiente.
+Se mantienen las garantías Stage 1: `fromMe=true`, no grupos, allowlist PN/LID, canonicalización al JID autorizado y outbound guard independiente. Ni IA ni transcripción amplían qué chats se aceptan.
 
-### Persistence
+## Persistence
 
-SQLite mantiene mensajes aceptados, notas, recordatorios, gastos, audit log y auth state de Baileys. Los mensajes entrantes siguen persistiendo localmente; una llamada de IA no añade historial remoto ni una tabla de conversaciones de IA.
+SQLite mantiene mensajes aceptados, notas, recordatorios, gastos, audit log y auth state. Stage 2 no añade persistencia de audio ni un historial remoto de IA/transcripciones.
 
 ## Release gates
-
-CI sigue ejecutando:
 
 ```text
 npm ci
@@ -83,13 +85,12 @@ npm ci
   -> Docker arm64
 ```
 
-## Out of scope for Stage 2A
+## Out of scope actual
 
-- tool/function calling de IA;
-- fallback automático a IA para mensajes desconocidos;
-- memoria conversacional enviada al proveedor;
-- Calendar;
-- audio/transcripción;
+- tool/function calling;
+- fallback automático a IA;
+- ejecución automática de transcript;
+- Calendar writes;
 - Observer/non-self chats;
 - documentos;
 - OpenClaw/Claude Code/Codex.

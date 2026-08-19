@@ -17,40 +17,46 @@
 
 ## Stage 2A AI rules
 
-1. **Opt-in at two levels.** `AI_ENABLED=false` por defecto y, aun habilitada, la IA solo se invoca con `ia`/`ai` explícito.
-2. **No automatic data sharing.** Mensajes normales y comandos locales no salen al proveedor.
-3. **No history/context export.** Una llamada contiene únicamente system prompt fijo + prompt explícito actual.
-4. **No AI tools/actions.** El modelo devuelve texto; no puede escribir Calendar, mandar mensajes, cambiar SQLite ni ejecutar comandos.
-5. **Remote TLS required.** `AI_BASE_URL` remoto debe usar HTTPS. HTTP solo se permite en loopback.
-6. **Secrets stay in env.** `AI_API_KEY` no se persiste en SQLite ni se incluye en logs/audit.
-7. **Audit without content.** Se registra proveedor/modelo/tamaños/resultado operacional, nunca prompt o respuesta.
-8. **Bounded exposure.** Hay límites de input, output tokens, reply chars y timeout.
-9. **Safe upstream errors.** Bodies de errores del proveedor no se incorporan a mensajes ni audit.
+1. `AI_ENABLED=false` por defecto y la IA requiere `ia`/`ai` explícito.
+2. Mensajes normales/comandos locales no salen al proveedor.
+3. No se exporta historial/contexto local.
+4. No hay tools/actions.
+5. Endpoint remoto exige HTTPS; HTTP solo loopback.
+6. `AI_API_KEY` permanece en env y no entra en audit/logs.
+7. Audit registra metadata, nunca prompt/respuesta.
+8. Input/output/timeout están acotados.
+9. Bodies de errores upstream no se muestran.
+
+## Stage 2B transcription rules
+
+1. `TRANSCRIPTION_ENABLED=false` por defecto.
+2. Solo un audio que ya pasó la allowlist de self-chat puede recibir un `loadMedia` utilizable.
+3. Con transcripción deshabilitada el loader no se invoca y el audio no se descarga para esta capability.
+4. `fileLength` declarado se usa como pre-check; después se comprueba el tamaño real del buffer.
+5. Audio que excede el límite no se envía al proveedor.
+6. El buffer de audio no se persiste como archivo por la app; permanece efímero en memoria.
+7. Endpoint remoto exige HTTPS; HTTP solo loopback.
+8. `TRANSCRIPTION_API_KEY` queda en env y no entra en SQLite/audit/logs.
+9. Audit registra proveedor/modelo/tamaños/MIME/estado, nunca bytes de audio, nombre de archivo ni transcript.
+10. Error bodies upstream no se muestran.
+11. La transcripción es texto terminal: no se reinyecta al router y no ejecuta comandos.
 
 ## Important limitations
 
 Baileys usa el protocolo de WhatsApp Web y no la API oficial de Meta WhatsApp Business. Sigue existiendo riesgo de rotura de protocolo o restricciones de cuenta.
 
-Un proveedor de IA remoto recibe el texto que el usuario escriba después de `ia`/`ai`. Su política de retención y privacidad depende del proveedor elegido; Stage 2A no puede garantizar qué hace el proveedor después de recibir ese prompt.
+Un proveedor remoto de IA recibe el prompt explícito después de `ia`/`ai`. Un proveedor remoto de transcripción recibe el audio autorizado cuando la transcripción está habilitada. Sus políticas de retención/privacidad deben revisarse antes de uso con datos sensibles.
 
 ## Secrets
 
-Tratar como secretos:
-
-- `data/assistant.db` y WAL/SHM;
-- `.env`;
-- backups;
-- pairing codes vigentes;
-- `AI_API_KEY`.
-
-Nunca commitear `.env` ni archivos de `data/`. Antes de backups remotos, usar cifrado en reposo o destino cifrado.
+Tratar como secretos `data/assistant.db`, WAL/SHM, `.env`, backups, pairing codes, `AI_API_KEY` y `TRANSCRIPTION_API_KEY`.
 
 ## Permission levels
 
 - **Level 0:** lectura/resumen local.
 - **Level 1:** notas, recordatorios y gastos locales — Stage 1.
-- **Level 1E:** consulta externa de texto explícitamente solicitada, sin acciones — Stage 2A IA.
+- **Level 1E:** envío externo explícito de texto/audio para obtener una respuesta sin acciones — Stage 2A/2B.
 - **Level 2:** modificaciones externas como Calendar — requerirá confirmación explícita.
 - **Level 3:** comunicación a terceros — requerirá confirmación explícita cada vez.
 
-Stage 2A no implementa Level 2 ni Level 3.
+Stage 2A/2B no implementan Level 2 ni Level 3.

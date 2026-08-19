@@ -36,6 +36,18 @@ export class AudioTranscriptionCapability implements Capability {
       };
     }
 
+    if (message.mediaSizeBytes !== undefined && message.mediaSizeBytes > this.config.maxBytes) {
+      this.audit.record({
+        eventType: 'transcription.request.rejected',
+        entityType: 'transcription',
+        metadata: { reason: 'declared_size_limit', inputBytes: message.mediaSizeBytes },
+      });
+      return {
+        handled: true,
+        reply: `⚠️ El audio supera el límite de ${this.config.maxBytes} bytes y no fue descargado ni enviado al proveedor.`,
+      };
+    }
+
     if (!message.loadMedia) {
       return {
         handled: true,
@@ -65,7 +77,7 @@ export class AudioTranscriptionCapability implements Capability {
       this.audit.record({
         eventType: 'transcription.request.rejected',
         entityType: 'transcription',
-        metadata: { reason: 'size_limit', inputBytes: media.data.byteLength },
+        metadata: { reason: 'actual_size_limit', inputBytes: media.data.byteLength },
       });
       return {
         handled: true,

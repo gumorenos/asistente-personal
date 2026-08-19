@@ -18,6 +18,7 @@ export interface IncomingMessage {
   kind: MessageKind;
   fromMe: boolean;
   isGroup: boolean;
+  mediaSizeBytes?: number;
   loadMedia?: MediaLoader;
 }
 

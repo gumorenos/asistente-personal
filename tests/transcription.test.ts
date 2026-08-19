@@ -7,7 +7,7 @@ import { AppDatabase } from '../src/database/db.ts';
 import { OpenAICompatibleTranscriptionProvider } from '../src/transcription/openai-compatible-provider.ts';
 import type { TranscriptionInput, TranscriptionProvider, TranscriptionResult } from '../src/transcription/types.ts';
 
-function audioMessage(loadMedia?: IncomingMessage['loadMedia']): IncomingMessage {
+function audioMessage(loadMedia?: IncomingMessage['loadMedia'], mediaSizeBytes?: number): IncomingMessage {
   return {
     id: 'audio-1',
     chatId: '51999999999@s.whatsapp.net',
@@ -16,6 +16,7 @@ function audioMessage(loadMedia?: IncomingMessage['loadMedia']): IncomingMessage
     kind: 'audio',
     fromMe: true,
     isGroup: false,
+    mediaSizeBytes,
     loadMedia,
   };
 }
@@ -63,6 +64,22 @@ test('disabled transcription does not load or upload audio', async () => {
   db.close();
 });
 
+test('declared oversized audio is rejected before media download', async () => {
+  const provider = new FakeTranscriptionProvider();
+  let loaded = false;
+  const { db, audit, capability } = setup(provider, true, 2);
+  const result = await capability.handle(audioMessage(async () => {
+    loaded = true;
+    return { data: new Uint8Array([1]) };
+  }, 3));
+
+  assert.match(result?.reply ?? '', /no fue descargado/);
+  assert.equal(loaded, false);
+  assert.equal(provider.calls.length, 0);
+  assert.match(JSON.stringify(audit.listRecent()), /declared_size_limit/);
+  db.close();
+});
+
 test('enabled transcription loads media once, returns text and audits without content', async () => {
   const provider = new FakeTranscriptionProvider();
   let loads = 0;
@@ -70,7 +87,7 @@ test('enabled transcription loads media once, returns text and audits without co
   const result = await capability.handle(audioMessage(async () => {
     loads += 1;
     return { data: new Uint8Array([1, 2, 3]), mimeType: 'audio/ogg', fileName: 'voice.ogg' };
-  }));
+  }, 3));
 
   assert.equal(loads, 1);
   assert.equal(provider.calls.length, 1);
@@ -82,12 +99,13 @@ test('enabled transcription loads media once, returns text and audits without co
   db.close();
 });
 
-test('oversized audio is rejected before provider upload', async () => {
+test('actual oversized audio is rejected before provider upload even if declared size is absent or wrong', async () => {
   const provider = new FakeTranscriptionProvider();
-  const { db, capability } = setup(provider, true, 2);
-  const result = await capability.handle(audioMessage(async () => ({ data: new Uint8Array([1, 2, 3]) })));
+  const { db, audit, capability } = setup(provider, true, 2);
+  const result = await capability.handle(audioMessage(async () => ({ data: new Uint8Array([1, 2, 3]) }), 1));
   assert.match(result?.reply ?? '', /supera el límite/);
   assert.equal(provider.calls.length, 0);
+  assert.match(JSON.stringify(audit.listRecent()), /actual_size_limit/);
   db.close();
 });
 
