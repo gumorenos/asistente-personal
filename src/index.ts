@@ -12,6 +12,7 @@ import { BriefingCapability } from './capabilities/briefing-capability.ts';
 import { CalendarExecutionCapability } from './capabilities/calendar-execution-capability.ts';
 import { CalendarProposalCapability } from './capabilities/calendar-proposal-capability.ts';
 import { LocalCapabilities } from './capabilities/local-capabilities.ts';
+import { ObserverAdminCapability } from './capabilities/observer-admin-capability.ts';
 import type { Capability } from './capabilities/types.ts';
 import { loadConfig } from './config.ts';
 import { AssistantCore } from './core/assistant.ts';
@@ -25,6 +26,7 @@ import { AppDatabase } from './database/db.ts';
 import { ExpenseRepository } from './database/expense-repository.ts';
 import { MessageRepository } from './database/message-repository.ts';
 import { NoteRepository } from './database/note-repository.ts';
+import { ObservedChatRepository } from './database/observed-chat-repository.ts';
 import { ReminderRepository } from './database/reminder-repository.ts';
 import { BriefingScheduler } from './scheduler/briefing-scheduler.ts';
 import { ReminderScheduler } from './scheduler/reminder-scheduler.ts';
@@ -44,6 +46,7 @@ const audit = new AuditRepository(database);
 const actions = new ActionRequestRepository(database);
 const actionExecutions = new ActionExecutionRepository(database);
 const briefingDeliveries = new BriefingDeliveryRepository(database);
+const observedChats = new ObservedChatRepository(database);
 const briefingService = new BriefingService(notes, reminders, expenses, actions, config.timeZone);
 
 let transport: MessageTransport;
@@ -97,6 +100,7 @@ if (config.briefing.enabled) {
 const capabilities: Capability[] = [
   new LocalCapabilities(notes, reminders, expenses, audit, config.timeZone),
   new BriefingCapability(briefingService),
+  new ObserverAdminCapability(observedChats, audit),
   new CalendarProposalCapability(actions, audit, config.timeZone),
   new ActionApprovalCapability(actions, audit),
   new CalendarExecutionCapability(config.calendar.enabled, calendarExecutor),
@@ -139,6 +143,8 @@ try {
     calendarProvider: config.calendar.enabled ? config.calendar.provider : 'disabled',
     dailyBriefingEnabled: config.briefing.enabled,
     dailyBriefingTime: `${String(config.briefing.hour).padStart(2, '0')}:${String(config.briefing.minute).padStart(2, '0')}`,
+    observedChatAllowlistCount: observedChats.listEnabled().length,
+    observerEnabled: false,
   });
 } catch (error) {
   appState = 'degraded';
