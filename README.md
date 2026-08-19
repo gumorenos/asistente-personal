@@ -4,7 +4,7 @@ Asistente personal autónomo con WhatsApp como interfaz inicial. El núcleo func
 
 ## Estado
 
-**Stage 0 — foundation / self-chat.**
+**Stage 1A — capacidades locales sobre foundation / self-chat.**
 
 Incluye:
 
@@ -18,11 +18,14 @@ Incluye:
 - allowlist estricta para self-chat;
 - protección básica contra respuestas en bucle;
 - comandos deterministas `ping`, `estado`, `ayuda`;
+- notas locales (`anota`, `notas`);
+- gastos PEN (`gasté ...`, `gastos`);
+- recordatorios locales con scheduler y soporte inicial para `hoy`/`mañana`;
 - `/healthz` y `/readyz`;
 - Docker/Docker Compose;
 - CI y tests unitarios.
 
-Todavía **no** incluye IA, Calendar, audios, Observer, documentos ni agentes externos.
+Todavía **no** incluye IA, Calendar, audios, Observer, documentos ni agentes externos. Los recordatorios se entregan únicamente al mismo self-chat autorizado.
 
 ## Seguridad por defecto
 
@@ -84,8 +87,8 @@ Ver [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) y [`docs/SECURITY.md`](docs/S
 
 ## Próximas etapas
 
-1. cerrar QA real de Stage 0 y persistencia/reconexión;
-2. notas, recordatorios y gastos;
+1. cerrar QA real de WhatsApp y persistencia/reconexión;
+2. ampliar parsing y operaciones de notas/recordatorios/gastos;
 3. abstracción de proveedor IA;
 4. audio/transcripción;
 5. Calendar con confirmación;

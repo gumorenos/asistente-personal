@@ -78,6 +78,17 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       ) STRICT;
     `,
   },
+  {
+    version: 2,
+    sql: `
+      ALTER TABLE reminders ADD COLUMN chat_id TEXT;
+      ALTER TABLE reminders ADD COLUMN delivered_at TEXT;
+
+      CREATE INDEX IF NOT EXISTS idx_reminders_due
+        ON reminders(status, due_at)
+        WHERE status = 'pending' AND due_at IS NOT NULL;
+    `,
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): void {

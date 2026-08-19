@@ -3,6 +3,7 @@ export interface AppConfig {
   dbPath: string;
   healthHost: string;
   healthPort: number;
+  timeZone: string;
   whatsapp: {
     enabled: boolean;
     phoneNumber?: string;
@@ -37,6 +38,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     dbPath: env.APP_DB_PATH ?? './data/assistant.db',
     healthHost: env.HEALTH_HOST ?? '127.0.0.1',
     healthPort: parsePort(env.HEALTH_PORT, 8787),
+    timeZone: env.APP_TIMEZONE?.trim() || 'America/Lima',
     whatsapp: {
       enabled: parseBoolean(env.WHATSAPP_ENABLED, false),
       phoneNumber: env.WHATSAPP_PHONE_NUMBER?.trim() || undefined,

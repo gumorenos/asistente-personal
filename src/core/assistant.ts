@@ -3,14 +3,21 @@ import { routeMessage } from './router.ts';
 import type { IncomingMessage } from './types.ts';
 import type { MessageRepository } from '../database/message-repository.ts';
 import type { MessageTransport } from '../transports/types.ts';
+import type { LocalCapabilities } from '../capabilities/local-capabilities.ts';
 
 export class AssistantCore {
   private readonly transport: MessageTransport;
   private readonly messages: MessageRepository;
+  private readonly capabilities?: LocalCapabilities;
 
-  constructor(transport: MessageTransport, messages: MessageRepository) {
+  constructor(
+    transport: MessageTransport,
+    messages: MessageRepository,
+    capabilities?: LocalCapabilities,
+  ) {
     this.transport = transport;
     this.messages = messages;
+    this.capabilities = capabilities;
   }
 
   async handleIncoming(message: IncomingMessage): Promise<void> {
@@ -25,7 +32,8 @@ export class AssistantCore {
       return;
     }
 
-    const route = routeMessage(message);
+    const capabilityRoute = await this.capabilities?.handle(message);
+    const route = capabilityRoute ?? routeMessage(message);
     if (!route.handled || !route.reply) return;
 
     const result = await this.transport.sendText(message.chatId, route.reply);

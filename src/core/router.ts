@@ -17,7 +17,7 @@ export function routeMessage(message: IncomingMessage): RouteResult {
   if (['estado', '/estado', 'status'].includes(text)) {
     return {
       handled: true,
-      reply: '✅ Asistente activo. Etapa 0: self-chat, persistencia y transporte seguro.',
+      reply: '✅ Asistente activo. Etapa 1: self-chat, notas, gastos y recordatorios locales.',
     };
   }
 
@@ -29,8 +29,14 @@ export function routeMessage(message: IncomingMessage): RouteResult {
         '• ping',
         '• estado',
         '• ayuda',
+        '• anota <texto>',
+        '• notas',
+        '• gasté <monto> soles en <descripción>',
+        '• gastos',
+        '• recuérdame mañana a las <hora> <texto>',
+        '• recordatorios',
         '',
-        'Notas, recordatorios, gastos, calendario e IA se incorporan en las siguientes etapas.',
+        'Calendar, audio, IA y Observer siguen deshabilitados.',
       ].join('\n'),
     };
   }
