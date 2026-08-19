@@ -66,6 +66,31 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 - [ ] Medir pico de RAM en RPi5 cerca del límite máximo de audio.
 - [ ] Medir latencia/costo y revisar retención/privacidad del proveedor elegido antes de audio sensible.
 
+## Stage 2C — approval boundary / Calendar proposals
+
+### Automated development checks
+
+- [x] `action_requests` persiste propuestas locales con estados `pending`, `approved` y `rejected`.
+- [x] Aprobar/rechazar es una transición atómica solo desde `pending`.
+- [x] `agenda ...` reutiliza el parser horario determinista y crea `calendar.create_event` pendiente sin llamar a Google.
+- [x] Duración default 60 min; `por/durante N minutos/horas` se valida entre 5 min y 8 h.
+- [x] Propuesta Calendar expira al llegar su hora de inicio: deja de listarse y ya no puede aprobarse.
+- [x] `acciones` muestra summary local, no el payload completo.
+- [x] Audit registra tipo/timing/decisión, no payload ni título de la propuesta.
+- [x] Aprobar responde explícitamente que **no ejecutó** la acción; no existe executor externo en Stage 2C.
+
+### Manual / real self-chat QA
+
+- [ ] `agenda mañana a las 10 reunión de prueba por 30 minutos` crea una única propuesta pendiente y no un evento real.
+- [ ] `acciones` muestra la propuesta y no expone campos internos del payload.
+- [ ] `aprueba acción #N` cambia a `approved` una sola vez y no genera tráfico a Google Calendar.
+- [ ] `rechaza acción #N` cambia a `rejected` una sola vez y no genera tráfico externo.
+- [ ] Reiniciar proceso/RPi con propuesta pendiente y confirmar persistencia del estado.
+- [ ] Intentar aprobar una propuesta después de su hora de inicio y confirmar rechazo por caducidad.
+- [ ] Confirmar mediante captura/logs de red que `agenda`, `acciones`, aprobación y rechazo no contactan `googleapis.com` ni otro Calendar provider.
+- [ ] Revisar `audit_log`: no debe contener título/payload sensible de la propuesta.
+- [ ] Validar frases reales con `mañana`, weekday, `DD/MM`, fecha ISO y duración en America/Lima.
+
 ## Health / operations — manual
 
 - [ ] `/healthz` 200 y `/readyz` refleja DB/transport en deployment real.
@@ -73,7 +98,7 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 - [ ] SIGTERM/SIGINT cierra scheduler, transport, health y SQLite.
 - [ ] Recuperación WAL/SHM después de kill no limpio.
 - [ ] Permisos reales de directorio/DB en RPi.
-- [ ] Backup/restore y row counts/migrations.
+- [ ] Backup/restore y row counts/migrations, incluyendo `action_requests`.
 - [ ] Consumo CPU/RAM estable durante al menos 24h.
 
 ## Baileys reliability gaps before Observer mode
@@ -85,12 +110,14 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 
 ## Privacy/security before non-self chats or external writes
 
-- [ ] Chat-level allowlist y workflow administrativo.
+- [x] Boundary local de propuesta + aprobación/rechazo existe antes de Calendar write.
+- [ ] Calendar executor/provider debe consumir **solo** acciones `approved`, revalidar payload/fecha justo antes de ejecutar y registrar resultado/idempotency key.
+- [ ] Calendar OAuth/token storage y refresh strategy deben definirse y threat-modelarse antes de habilitar writes.
+- [ ] Chat-level allowlist y workflow administrativo antes de Observer/non-self chats.
 - [ ] Retention/purge jobs.
 - [ ] Decidir cifrado de SQLite/backups.
-- [ ] Action-approval model antes de Calendar.
 - [ ] Tests que prueben que third-party outbound no ocurre sin aprobación.
 
 ## Stop point for risky features
 
-Stage 1 está cerrado a nivel de desarrollo pero mantiene QA real pendiente. Stage 2A puede probarse externamente en paralelo. Stage 2B no amplía la allowlist: solo procesa media después del guard existente y no ejecuta el transcript. **Observer, respuestas a terceros y Calendar writes siguen bloqueados hasta implementar sus boundaries de autorización.**
+Stage 1 está cerrado a nivel de desarrollo pero mantiene QA real pendiente. Stage 2A/2B tienen sus pruebas externas pendientes. Stage 2C ya separa propuesta de aprobación, pero **no existe todavía Calendar executor/provider**. Observer, respuestas a terceros y Calendar writes siguen bloqueados hasta implementar y validar sus boundaries de ejecución/autorización.
