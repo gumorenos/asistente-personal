@@ -121,6 +121,26 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
         WHERE status = 'pending';
     `,
   },
+  {
+    version: 6,
+    sql: `
+      CREATE TABLE IF NOT EXISTS action_executions (
+        action_request_id INTEGER PRIMARY KEY,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        provider TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('started', 'succeeded', 'failed')),
+        attempt_count INTEGER NOT NULL DEFAULT 1 CHECK (attempt_count >= 1),
+        external_id TEXT,
+        error_code TEXT,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (action_request_id) REFERENCES action_requests(id) ON DELETE RESTRICT
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS idx_action_executions_status
+        ON action_executions(status, updated_at DESC);
+    `,
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): void {
