@@ -100,6 +100,25 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
         ON audit_log(created_at DESC);
     `,
   },
+  {
+    version: 4,
+    sql: `
+      CREATE TABLE IF NOT EXISTS action_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        action_type TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (status IN ('pending', 'approved', 'rejected')),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        decided_at TEXT,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      ) STRICT;
+
+      CREATE INDEX IF NOT EXISTS idx_action_requests_status_created
+        ON action_requests(status, id DESC);
+    `,
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): void {

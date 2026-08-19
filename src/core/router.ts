@@ -12,7 +12,7 @@ export function routeMessage(message: IncomingMessage): RouteResult {
   if (['ping', '/ping'].includes(text)) return { handled: true, reply: 'pong' };
 
   if (['estado', '/estado', 'status'].includes(text)) {
-    return { handled: true, reply: '✅ Asistente activo. Stage 2: capacidades locales + IA explícita + transcripción opcional.' };
+    return { handled: true, reply: '✅ Asistente activo. Stage 2: local + IA explícita + transcripción opcional + aprobación local de acciones.' };
   }
 
   if (['ayuda', '/ayuda', 'help'].includes(text)) {
@@ -25,11 +25,13 @@ export function routeMessage(message: IncomingMessage): RouteResult {
         '• gasté <monto> soles en <descripción> #<categoría>',
         '• gastos hoy / semana / mes / resumen gastos mes',
         '• recuérdame <fecha/hora> <texto> / recordatorios',
+        '• acciones',
+        '• aprueba acción #N / rechaza acción #N',
         '• ia <pregunta>',
         '• audio de voz: se transcribe solo si TRANSCRIPTION_ENABLED=true',
         '',
-        'La IA no recibe historial y no puede ejecutar acciones.',
-        'La transcripción devuelve texto: no lo reinyecta como comando.',
+        'Aprobar una acción solo cambia su estado local; todavía NO la ejecuta.',
+        'IA/transcripción no ejecutan acciones.',
         'Calendar, Observer, documentos y agentes externos siguen deshabilitados.',
       ].join('\n'),
     };

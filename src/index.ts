@@ -1,6 +1,7 @@
 import { createHealthServer } from './api/health.ts';
 import { OpenAICompatibleProvider } from './ai/openai-compatible-provider.ts';
 import type { AiProvider } from './ai/types.ts';
+import { ActionApprovalCapability } from './capabilities/action-approval-capability.ts';
 import { AiCapability } from './capabilities/ai-capability.ts';
 import { AudioTranscriptionCapability } from './capabilities/audio-transcription-capability.ts';
 import { LocalCapabilities } from './capabilities/local-capabilities.ts';
@@ -9,6 +10,7 @@ import { loadConfig } from './config.ts';
 import { AssistantCore } from './core/assistant.ts';
 import { logger } from './core/logger.ts';
 import type { AssistantStatus } from './core/types.ts';
+import { ActionRequestRepository } from './database/action-request-repository.ts';
 import { AuditRepository } from './database/audit-repository.ts';
 import { AppDatabase } from './database/db.ts';
 import { ExpenseRepository } from './database/expense-repository.ts';
@@ -29,6 +31,7 @@ const notes = new NoteRepository(database);
 const expenses = new ExpenseRepository(database);
 const reminders = new ReminderRepository(database);
 const audit = new AuditRepository(database);
+const actions = new ActionRequestRepository(database);
 
 let transport: MessageTransport;
 if (config.whatsapp.enabled) transport = new BaileysWhatsAppTransport(config.whatsapp, database, messages);
@@ -57,6 +60,7 @@ if (config.transcription.enabled) {
 
 const capabilities: Capability[] = [
   new LocalCapabilities(notes, reminders, expenses, audit, config.timeZone),
+  new ActionApprovalCapability(actions, audit),
   new AudioTranscriptionCapability(transcriptionProvider, audit, {
     enabled: config.transcription.enabled,
     maxBytes: config.transcription.maxBytes,
