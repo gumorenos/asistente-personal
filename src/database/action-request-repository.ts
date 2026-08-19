@@ -7,6 +7,7 @@ export interface ActionRequestInput {
   actionType: string;
   summary: string;
   payload: Record<string, unknown>;
+  expiresAt?: string;
 }
 
 export interface ActionRequestRecord extends ActionRequestInput {
@@ -24,6 +25,7 @@ interface RawActionRequestRow {
   status: ActionRequestStatus;
   created_at: string;
   decided_at: string | null;
+  expires_at: string | null;
 }
 
 const ACTION_TYPE_PATTERN = /^[a-z][a-z0-9_.-]{0,79}$/;
@@ -42,23 +44,24 @@ export class ActionRequestRepository {
     const summary = input.summary.trim();
     if (!ACTION_TYPE_PATTERN.test(actionType)) throw new Error('Invalid action type');
     if (!summary || summary.length > MAX_SUMMARY_CHARS) throw new Error('Invalid action summary');
+    if (input.expiresAt && !Number.isFinite(new Date(input.expiresAt).getTime())) throw new Error('Invalid action expiry');
 
     const payloadJson = JSON.stringify(input.payload);
     if (payloadJson.length > MAX_PAYLOAD_CHARS) throw new Error('Action payload is too large');
 
     const result = this.database.native
       .prepare(`
-        INSERT INTO action_requests(action_type, summary, payload_json)
-        VALUES (?, ?, ?)
+        INSERT INTO action_requests(action_type, summary, payload_json, expires_at)
+        VALUES (?, ?, ?, ?)
       `)
-      .run(actionType, summary, payloadJson);
+      .run(actionType, summary, payloadJson, input.expiresAt ?? null);
     return Number(result.lastInsertRowid);
   }
 
   getById(id: number): ActionRequestRecord | undefined {
     const row = this.database.native
       .prepare(`
-        SELECT id, action_type, summary, payload_json, status, created_at, decided_at
+        SELECT id, action_type, summary, payload_json, status, created_at, decided_at, expires_at
         FROM action_requests
         WHERE id = ?
       `)
@@ -66,16 +69,17 @@ export class ActionRequestRepository {
     return row ? mapRow(row) : undefined;
   }
 
-  listPending(limit = 10): ActionRequestRecord[] {
+  listPending(nowIso: string, limit = 10): ActionRequestRecord[] {
     const rows = this.database.native
       .prepare(`
-        SELECT id, action_type, summary, payload_json, status, created_at, decided_at
+        SELECT id, action_type, summary, payload_json, status, created_at, decided_at, expires_at
         FROM action_requests
         WHERE status = 'pending'
+          AND (expires_at IS NULL OR expires_at > ?)
         ORDER BY id DESC
         LIMIT ?
       `)
-      .all(limit) as unknown as RawActionRequestRow[];
+      .all(nowIso, limit) as unknown as RawActionRequestRow[];
     return rows.map(mapRow);
   }
 
@@ -84,9 +88,11 @@ export class ActionRequestRepository {
       .prepare(`
         UPDATE action_requests
         SET status = ?, decided_at = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND status = 'pending'
+        WHERE id = ?
+          AND status = 'pending'
+          AND (expires_at IS NULL OR expires_at > ?)
       `)
-      .run(decision, decidedAt, id);
+      .run(decision, decidedAt, id, decidedAt);
     if (result.changes !== 1) return undefined;
     return this.getById(id);
   }
@@ -101,5 +107,6 @@ function mapRow(row: RawActionRequestRow): ActionRequestRecord {
     status: row.status,
     createdAt: row.created_at,
     decidedAt: row.decided_at ?? undefined,
+    expiresAt: row.expires_at ?? undefined,
   };
 }

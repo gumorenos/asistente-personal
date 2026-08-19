@@ -4,6 +4,7 @@ import type { AiProvider } from './ai/types.ts';
 import { ActionApprovalCapability } from './capabilities/action-approval-capability.ts';
 import { AiCapability } from './capabilities/ai-capability.ts';
 import { AudioTranscriptionCapability } from './capabilities/audio-transcription-capability.ts';
+import { CalendarProposalCapability } from './capabilities/calendar-proposal-capability.ts';
 import { LocalCapabilities } from './capabilities/local-capabilities.ts';
 import type { Capability } from './capabilities/types.ts';
 import { loadConfig } from './config.ts';
@@ -40,26 +41,22 @@ else transport = new DisabledTransport();
 let aiProvider: AiProvider | undefined;
 if (config.ai.enabled) {
   aiProvider = new OpenAICompatibleProvider({
-    baseUrl: config.ai.baseUrl!,
-    apiKey: config.ai.apiKey,
-    model: config.ai.model!,
-    timeoutMs: config.ai.timeoutMs,
-    maxOutputTokens: config.ai.maxOutputTokens,
+    baseUrl: config.ai.baseUrl!, apiKey: config.ai.apiKey, model: config.ai.model!,
+    timeoutMs: config.ai.timeoutMs, maxOutputTokens: config.ai.maxOutputTokens,
   });
 }
 
 let transcriptionProvider: TranscriptionProvider | undefined;
 if (config.transcription.enabled) {
   transcriptionProvider = new OpenAICompatibleTranscriptionProvider({
-    baseUrl: config.transcription.baseUrl!,
-    apiKey: config.transcription.apiKey,
-    model: config.transcription.model!,
-    timeoutMs: config.transcription.timeoutMs,
+    baseUrl: config.transcription.baseUrl!, apiKey: config.transcription.apiKey,
+    model: config.transcription.model!, timeoutMs: config.transcription.timeoutMs,
   });
 }
 
 const capabilities: Capability[] = [
   new LocalCapabilities(notes, reminders, expenses, audit, config.timeZone),
+  new CalendarProposalCapability(actions, audit, config.timeZone),
   new ActionApprovalCapability(actions, audit),
   new AudioTranscriptionCapability(transcriptionProvider, audit, {
     enabled: config.transcription.enabled,

@@ -16,9 +16,7 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
         is_group INTEGER NOT NULL CHECK (is_group IN (0,1)),
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       ) STRICT;
-
-      CREATE INDEX IF NOT EXISTS idx_messages_chat_timestamp
-        ON messages(chat_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_messages_chat_timestamp ON messages(chat_id, timestamp DESC);
 
       CREATE TABLE IF NOT EXISTS assistant_outbound (
         message_id TEXT PRIMARY KEY,
@@ -83,7 +81,6 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
     sql: `
       ALTER TABLE reminders ADD COLUMN chat_id TEXT;
       ALTER TABLE reminders ADD COLUMN delivered_at TEXT;
-
       CREATE INDEX IF NOT EXISTS idx_reminders_due
         ON reminders(status, due_at)
         WHERE status = 'pending' AND due_at IS NOT NULL;
@@ -92,12 +89,9 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
   {
     version: 3,
     sql: `
-      CREATE INDEX IF NOT EXISTS idx_expenses_occurred_at
-        ON expenses(occurred_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_expenses_category_occurred
-        ON expenses(category, occurred_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_audit_created_at
-        ON audit_log(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_expenses_occurred_at ON expenses(occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_expenses_category_occurred ON expenses(category, occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_log(created_at DESC);
     `,
   },
   {
@@ -114,9 +108,17 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
         decided_at TEXT,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       ) STRICT;
-
       CREATE INDEX IF NOT EXISTS idx_action_requests_status_created
         ON action_requests(status, id DESC);
+    `,
+  },
+  {
+    version: 5,
+    sql: `
+      ALTER TABLE action_requests ADD COLUMN expires_at TEXT;
+      CREATE INDEX IF NOT EXISTS idx_action_requests_pending_expiry
+        ON action_requests(status, expires_at)
+        WHERE status = 'pending';
     `,
   },
 ];
@@ -134,7 +136,6 @@ export function runMigrations(db: DatabaseSync): void {
 
   for (const migration of MIGRATIONS) {
     if (applied.has(migration.version)) continue;
-
     db.exec('BEGIN IMMEDIATE');
     try {
       db.exec(migration.sql);

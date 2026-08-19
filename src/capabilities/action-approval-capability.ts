@@ -11,10 +11,7 @@ function parseDecision(text: string): { id: number; decision: ActionDecision } |
   const normalized = fold(text.trim());
   const match = normalized.match(/^(aprueba|aprobar|rechaza|rechazar)\s+accion\s+#?(\d+)$/);
   if (!match?.[1] || !match[2]) return undefined;
-  return {
-    id: Number(match[2]),
-    decision: match[1].startsWith('apr') ? 'approved' : 'rejected',
-  };
+  return { id: Number(match[2]), decision: match[1].startsWith('apr') ? 'approved' : 'rejected' };
 }
 
 export class ActionApprovalCapability implements Capability {
@@ -32,8 +29,9 @@ export class ActionApprovalCapability implements Capability {
 
   async handle(message: IncomingMessage): Promise<CapabilityResult | undefined> {
     const normalized = fold(message.text.trim());
+    const nowIso = this.now().toISOString();
     if (['acciones', 'acciones pendientes', 'mis acciones'].includes(normalized)) {
-      const rows = this.actions.listPending(10);
+      const rows = this.actions.listPending(nowIso, 10);
       return {
         handled: true,
         reply: rows.length
@@ -50,10 +48,8 @@ export class ActionApprovalCapability implements Capability {
     const decision = parseDecision(message.text);
     if (!decision) return undefined;
 
-    const action = this.actions.decide(decision.id, decision.decision, this.now().toISOString());
-    if (!action) {
-      return { handled: true, reply: `No encontré una acción pendiente #${decision.id}.` };
-    }
+    const action = this.actions.decide(decision.id, decision.decision, nowIso);
+    if (!action) return { handled: true, reply: `No encontré una acción pendiente y vigente #${decision.id}.` };
 
     this.audit.record({
       eventType: `action.${decision.decision}`,
