@@ -8,7 +8,7 @@ export function routeMessage(message: IncomingMessage): RouteResult {
   if (['ping', '/ping'].includes(text)) return { handled: true, reply: 'pong' };
 
   if (['estado', '/estado', 'status'].includes(text)) {
-    return { handled: true, reply: '✅ Asistente activo. Briefing local disponible; envíos diarios y Calendar writes están deshabilitados por defecto.' };
+    return { handled: true, reply: '✅ Asistente activo. Observer sigue deshabilitado; solo existe su allowlist administrativa.' };
   }
 
   if (['ayuda', '/ayuda', 'help'].includes(text)) {
@@ -26,11 +26,15 @@ export function routeMessage(message: IncomingMessage): RouteResult {
         '• acciones',
         '• aprueba acción #N / rechaza acción #N',
         '• ejecuta acción #N — solo si CALENDAR_ENABLED=true',
+        '• observa chat <jid> como <etiqueta>',
+        '• chats observados',
+        '• deja de observar <jid>',
         '• ia <pregunta>',
         '• audio: transcripción solo si está habilitada',
         '',
-        'El briefing automático requiere BRIEFING_ENABLED=true y un self-JID allowlisted explícito.',
-        'Observer, documentos y agentes externos siguen deshabilitados.',
+        'La allowlist de chats NO activa Observer ni cambia el transporte todavía.',
+        'El briefing automático y Calendar writes permanecen opt-in.',
+        'Documentos y agentes externos siguen deshabilitados.',
       ].join('\n'),
     };
   }
