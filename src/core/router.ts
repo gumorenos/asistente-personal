@@ -17,7 +17,7 @@ export function routeMessage(message: IncomingMessage): RouteResult {
   if (['estado', '/estado', 'status'].includes(text)) {
     return {
       handled: true,
-      reply: '✅ Asistente activo. Stage 1: self-chat seguro, notas, gastos y recordatorios locales.',
+      reply: '✅ Asistente activo. Stage 2A: capacidades locales deterministas + IA opcional y explícita.',
     };
   }
 
@@ -25,27 +25,27 @@ export function routeMessage(message: IncomingMessage): RouteResult {
     return {
       handled: true,
       reply: [
-        'Comandos Stage 1:',
-        '• anota <texto> / notas',
-        '• completa nota #<id> / archiva nota #<id>',
-        '• gasté <monto> en <descripción> #<categoría>',
-        '• categoriza gasto #<id> como <categoría>',
-        '• gastos [hoy|semana|mes]',
-        '• resumen gastos [hoy|semana|mes]',
-        '• recuérdame en 30 minutos <texto>',
-        '• recuérdame mañana a las 10 <texto>',
-        '• recuérdame viernes a las 16 <texto>',
+        'Comandos disponibles:',
+        '• ping',
+        '• estado',
+        '• ayuda',
+        '• anota <texto>',
+        '• notas',
+        '• gasté <monto> soles en <descripción> #<categoría>',
+        '• gastos / gastos hoy / gastos semana / gastos mes',
+        '• resumen gastos mes',
+        '• recuérdame <fecha/hora> <texto>',
         '• recordatorios',
-        '• completa recordatorio #<id> / cancela recordatorio #<id>',
-        '• ping / estado / ayuda',
+        '• ia <pregunta>',
         '',
-        'IA, Calendar, audio, Observer y agentes externos siguen deshabilitados.',
+        'La IA solo se invoca con “ia”/“ai”, no recibe tu historial y no puede ejecutar acciones.',
+        'Calendar, audio, Observer, documentos y agentes externos siguen deshabilitados.',
       ].join('\n'),
     };
   }
 
   return {
     handled: true,
-    reply: 'Mensaje recibido y guardado. Escribe “ayuda” para ver los comandos disponibles.',
+    reply: 'Mensaje recibido y guardado. Usa “ayuda” para ver comandos; la IA solo se invoca con “ia <pregunta>”.',
   };
 }

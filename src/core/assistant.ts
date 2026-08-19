@@ -1,19 +1,19 @@
+import type { Capability } from '../capabilities/types.ts';
+import type { MessageRepository } from '../database/message-repository.ts';
+import type { MessageTransport } from '../transports/types.ts';
 import { logger } from './logger.ts';
 import { routeMessage } from './router.ts';
 import type { IncomingMessage } from './types.ts';
-import type { MessageRepository } from '../database/message-repository.ts';
-import type { MessageTransport } from '../transports/types.ts';
-import type { LocalCapabilities } from '../capabilities/local-capabilities.ts';
 
 export class AssistantCore {
   private readonly transport: MessageTransport;
   private readonly messages: MessageRepository;
-  private readonly capabilities?: LocalCapabilities;
+  private readonly capabilities: Capability[];
 
   constructor(
     transport: MessageTransport,
     messages: MessageRepository,
-    capabilities?: LocalCapabilities,
+    capabilities: Capability[] = [],
   ) {
     this.transport = transport;
     this.messages = messages;
@@ -32,8 +32,12 @@ export class AssistantCore {
       return;
     }
 
-    const capabilityRoute = await this.capabilities?.handle(message);
-    const route = capabilityRoute ?? routeMessage(message);
+    let route;
+    for (const capability of this.capabilities) {
+      route = await capability.handle(message);
+      if (route) break;
+    }
+    route ??= routeMessage(message);
     if (!route.handled || !route.reply) return;
 
     const result = await this.transport.sendText(message.chatId, route.reply);
