@@ -1,12 +1,14 @@
 import { createHealthServer } from './api/health.ts';
 import { OpenAICompatibleProvider } from './ai/openai-compatible-provider.ts';
 import type { AiProvider } from './ai/types.ts';
+import { BriefingService } from './briefing/briefing-service.ts';
 import { CalendarActionExecutor } from './calendar/calendar-action-executor.ts';
 import { GoogleCalendarProvider } from './calendar/google-calendar-provider.ts';
 import { GoogleOAuthAccessTokenProvider } from './calendar/google-oauth-token-provider.ts';
 import { ActionApprovalCapability } from './capabilities/action-approval-capability.ts';
 import { AiCapability } from './capabilities/ai-capability.ts';
 import { AudioTranscriptionCapability } from './capabilities/audio-transcription-capability.ts';
+import { BriefingCapability } from './capabilities/briefing-capability.ts';
 import { CalendarExecutionCapability } from './capabilities/calendar-execution-capability.ts';
 import { CalendarProposalCapability } from './capabilities/calendar-proposal-capability.ts';
 import { LocalCapabilities } from './capabilities/local-capabilities.ts';
@@ -18,11 +20,13 @@ import type { AssistantStatus } from './core/types.ts';
 import { ActionExecutionRepository } from './database/action-execution-repository.ts';
 import { ActionRequestRepository } from './database/action-request-repository.ts';
 import { AuditRepository } from './database/audit-repository.ts';
+import { BriefingDeliveryRepository } from './database/briefing-delivery-repository.ts';
 import { AppDatabase } from './database/db.ts';
 import { ExpenseRepository } from './database/expense-repository.ts';
 import { MessageRepository } from './database/message-repository.ts';
 import { NoteRepository } from './database/note-repository.ts';
 import { ReminderRepository } from './database/reminder-repository.ts';
+import { BriefingScheduler } from './scheduler/briefing-scheduler.ts';
 import { ReminderScheduler } from './scheduler/reminder-scheduler.ts';
 import { OpenAICompatibleTranscriptionProvider } from './transcription/openai-compatible-provider.ts';
 import type { TranscriptionProvider } from './transcription/types.ts';
@@ -39,6 +43,8 @@ const reminders = new ReminderRepository(database);
 const audit = new AuditRepository(database);
 const actions = new ActionRequestRepository(database);
 const actionExecutions = new ActionExecutionRepository(database);
+const briefingDeliveries = new BriefingDeliveryRepository(database);
+const briefingService = new BriefingService(notes, reminders, expenses, actions, config.timeZone);
 
 let transport: MessageTransport;
 if (config.whatsapp.enabled) transport = new BaileysWhatsAppTransport(config.whatsapp, database, messages);
@@ -75,8 +81,22 @@ if (config.calendar.enabled) {
   calendarExecutor = new CalendarActionExecutor(actions, actionExecutions, audit, calendarProvider);
 }
 
+let briefingScheduler: BriefingScheduler | undefined;
+if (config.briefing.enabled) {
+  briefingScheduler = new BriefingScheduler(
+    briefingService,
+    briefingDeliveries,
+    transport,
+    audit,
+    config.briefing.destinationJid!,
+    config.timeZone,
+    { hour: config.briefing.hour, minute: config.briefing.minute },
+  );
+}
+
 const capabilities: Capability[] = [
   new LocalCapabilities(notes, reminders, expenses, audit, config.timeZone),
+  new BriefingCapability(briefingService),
   new CalendarProposalCapability(actions, audit, config.timeZone),
   new ActionApprovalCapability(actions, audit),
   new CalendarExecutionCapability(config.calendar.enabled, calendarExecutor),
@@ -104,6 +124,7 @@ const healthServer = await createHealthServer(config.healthHost, config.healthPo
 try {
   await transport.connect();
   reminderScheduler.start();
+  briefingScheduler?.start();
   appState = 'ready';
   logger.info('Assistant started', {
     dbPath: database.path,
@@ -116,6 +137,8 @@ try {
     transcriptionProvider: config.transcription.enabled ? config.transcription.provider : 'disabled',
     calendarWritesEnabled: config.calendar.enabled,
     calendarProvider: config.calendar.enabled ? config.calendar.provider : 'disabled',
+    dailyBriefingEnabled: config.briefing.enabled,
+    dailyBriefingTime: `${String(config.briefing.hour).padStart(2, '0')}:${String(config.briefing.minute).padStart(2, '0')}`,
   });
 } catch (error) {
   appState = 'degraded';
@@ -130,6 +153,7 @@ async function shutdown(signal: string): Promise<void> {
   shuttingDown = true;
   appState = 'stopped';
   logger.info('Shutting down', { signal });
+  briefingScheduler?.stop();
   reminderScheduler.stop();
   await transport.disconnect().catch(() => undefined);
   await new Promise<void>((resolve) => healthServer.close(() => resolve()));

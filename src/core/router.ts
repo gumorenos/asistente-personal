@@ -8,7 +8,7 @@ export function routeMessage(message: IncomingMessage): RouteResult {
   if (['ping', '/ping'].includes(text)) return { handled: true, reply: 'pong' };
 
   if (['estado', '/estado', 'status'].includes(text)) {
-    return { handled: true, reply: '✅ Asistente activo. Calendar writes requieren aprobación + ejecución explícita y están deshabilitados por defecto.' };
+    return { handled: true, reply: '✅ Asistente activo. Briefing local disponible; envíos diarios y Calendar writes están deshabilitados por defecto.' };
   }
 
   if (['ayuda', '/ayuda', 'help'].includes(text)) {
@@ -17,6 +17,7 @@ export function routeMessage(message: IncomingMessage): RouteResult {
       reply: [
         'Comandos disponibles:',
         '• ping / estado / ayuda',
+        '• briefing',
         '• anota <texto> / notas',
         '• gasté <monto> soles en <descripción> #<categoría>',
         '• gastos hoy / semana / mes / resumen gastos mes',
@@ -28,8 +29,7 @@ export function routeMessage(message: IncomingMessage): RouteResult {
         '• ia <pregunta>',
         '• audio: transcripción solo si está habilitada',
         '',
-        'Crear una propuesta y aprobarla NO ejecuta Calendar.',
-        'Un write requiere además “ejecuta acción #N” y Calendar habilitado.',
+        'El briefing automático requiere BRIEFING_ENABLED=true y un self-JID allowlisted explícito.',
         'Observer, documentos y agentes externos siguen deshabilitados.',
       ].join('\n'),
     };
