@@ -14,10 +14,10 @@
     "check": "npm run typecheck && npm test"
   },
   "dependencies": {
-    "baileys": "7.0.0-rc.13"
+    "baileys": "7.0.0-rc13"
   },
   "devDependencies": {
-    "@types/node": "^22.15.30",
+    "@types/node": "^22.18.0",
     "typescript": "^5.8.3"
   }
 }
