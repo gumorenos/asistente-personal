@@ -7,18 +7,12 @@ export interface RouteResult {
 
 export function routeMessage(message: IncomingMessage): RouteResult {
   const text = message.text.trim().toLowerCase();
-
   if (!text) return { handled: false };
 
-  if (['ping', '/ping'].includes(text)) {
-    return { handled: true, reply: 'pong' };
-  }
+  if (['ping', '/ping'].includes(text)) return { handled: true, reply: 'pong' };
 
   if (['estado', '/estado', 'status'].includes(text)) {
-    return {
-      handled: true,
-      reply: '✅ Asistente activo. Stage 2A: capacidades locales deterministas + IA opcional y explícita.',
-    };
+    return { handled: true, reply: '✅ Asistente activo. Stage 2: capacidades locales + IA explícita + transcripción opcional.' };
   }
 
   if (['ayuda', '/ayuda', 'help'].includes(text)) {
@@ -26,26 +20,20 @@ export function routeMessage(message: IncomingMessage): RouteResult {
       handled: true,
       reply: [
         'Comandos disponibles:',
-        '• ping',
-        '• estado',
-        '• ayuda',
-        '• anota <texto>',
-        '• notas',
+        '• ping / estado / ayuda',
+        '• anota <texto> / notas',
         '• gasté <monto> soles en <descripción> #<categoría>',
-        '• gastos / gastos hoy / gastos semana / gastos mes',
-        '• resumen gastos mes',
-        '• recuérdame <fecha/hora> <texto>',
-        '• recordatorios',
+        '• gastos hoy / semana / mes / resumen gastos mes',
+        '• recuérdame <fecha/hora> <texto> / recordatorios',
         '• ia <pregunta>',
+        '• audio de voz: se transcribe solo si TRANSCRIPTION_ENABLED=true',
         '',
-        'La IA solo se invoca con “ia”/“ai”, no recibe tu historial y no puede ejecutar acciones.',
-        'Calendar, audio, Observer, documentos y agentes externos siguen deshabilitados.',
+        'La IA no recibe historial y no puede ejecutar acciones.',
+        'La transcripción devuelve texto: no lo reinyecta como comando.',
+        'Calendar, Observer, documentos y agentes externos siguen deshabilitados.',
       ].join('\n'),
     };
   }
 
-  return {
-    handled: true,
-    reply: 'Mensaje recibido y guardado. Usa “ayuda” para ver comandos; la IA solo se invoca con “ia <pregunta>”.',
-  };
+  return { handled: true, reply: 'Mensaje recibido y guardado. Usa “ayuda” para ver comandos.' };
 }

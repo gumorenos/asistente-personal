@@ -21,6 +21,16 @@ export interface AppConfig {
     maxReplyChars: number;
     maxOutputTokens: number;
   };
+  transcription: {
+    enabled: boolean;
+    provider: 'openai-compatible';
+    baseUrl?: string;
+    apiKey?: string;
+    model?: string;
+    timeoutMs: number;
+    maxBytes: number;
+    maxTranscriptChars: number;
+  };
 }
 
 function parseBoolean(value: string | undefined, fallback = false): boolean {
@@ -85,41 +95,65 @@ function parseSelfJids(value: string | undefined): string[] {
   return [...new Set(parsed)];
 }
 
-function parseAiProvider(value: string | undefined): 'openai-compatible' {
+function parseProvider(value: string | undefined, name: string): 'openai-compatible' {
   const provider = value?.trim().toLowerCase() || 'openai-compatible';
-  if (provider !== 'openai-compatible') throw new Error(`Unsupported AI_PROVIDER: ${provider}`);
+  if (provider !== 'openai-compatible') throw new Error(`Unsupported ${name}: ${provider}`);
   return provider;
 }
 
-function parseAiBaseUrl(value: string | undefined): string | undefined {
+function isLoopback(hostname: string): boolean {
+  return ['localhost', '127.0.0.1', '::1', '[::1]'].includes(hostname.toLowerCase());
+}
+
+function parseExternalBaseUrl(value: string | undefined, name: string): string | undefined {
   const raw = value?.trim();
   if (!raw) return undefined;
   let url: URL;
   try {
     url = new URL(raw);
   } catch {
-    throw new Error('AI_BASE_URL must be a valid absolute URL');
+    throw new Error(`${name} must be a valid absolute URL`);
   }
-  const loopback = ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
-  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
-    throw new Error('AI_BASE_URL must use HTTPS, except for localhost/loopback HTTP');
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopback(url.hostname))) {
+    throw new Error(`${name} must use HTTPS, except for localhost/loopback HTTP`);
   }
   return url.toString().replace(/\/$/, '');
 }
 
+function validateExternalProvider(
+  enabled: boolean,
+  baseUrl: string | undefined,
+  model: string | undefined,
+  apiKey: string | undefined,
+  prefix: 'AI' | 'TRANSCRIPTION',
+): void {
+  if (!enabled) return;
+  if (!baseUrl) throw new Error(`${prefix}_BASE_URL is required when ${prefix}_ENABLED=true`);
+  if (!model) throw new Error(`${prefix}_MODEL is required when ${prefix}_ENABLED=true`);
+  const url = new URL(baseUrl);
+  if (!isLoopback(url.hostname) && !apiKey) {
+    throw new Error(`${prefix}_API_KEY is required for a non-loopback ${prefix}_BASE_URL`);
+  }
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const aiEnabled = parseBoolean(env.AI_ENABLED, false);
-  const aiBaseUrl = parseAiBaseUrl(env.AI_BASE_URL);
+  const aiBaseUrl = parseExternalBaseUrl(env.AI_BASE_URL, 'AI_BASE_URL');
   const aiModel = env.AI_MODEL?.trim() || undefined;
   const aiApiKey = env.AI_API_KEY?.trim() || undefined;
+  validateExternalProvider(aiEnabled, aiBaseUrl, aiModel, aiApiKey, 'AI');
 
-  if (aiEnabled && !aiBaseUrl) throw new Error('AI_BASE_URL is required when AI_ENABLED=true');
-  if (aiEnabled && !aiModel) throw new Error('AI_MODEL is required when AI_ENABLED=true');
-  if (aiEnabled && aiBaseUrl) {
-    const url = new URL(aiBaseUrl);
-    const loopback = ['localhost', '127.0.0.1', '::1'].includes(url.hostname);
-    if (!loopback && !aiApiKey) throw new Error('AI_API_KEY is required for a non-loopback AI_BASE_URL');
-  }
+  const transcriptionEnabled = parseBoolean(env.TRANSCRIPTION_ENABLED, false);
+  const transcriptionBaseUrl = parseExternalBaseUrl(env.TRANSCRIPTION_BASE_URL, 'TRANSCRIPTION_BASE_URL');
+  const transcriptionModel = env.TRANSCRIPTION_MODEL?.trim() || undefined;
+  const transcriptionApiKey = env.TRANSCRIPTION_API_KEY?.trim() || undefined;
+  validateExternalProvider(
+    transcriptionEnabled,
+    transcriptionBaseUrl,
+    transcriptionModel,
+    transcriptionApiKey,
+    'TRANSCRIPTION',
+  );
 
   return {
     nodeEnv: env.NODE_ENV ?? 'development',
@@ -135,7 +169,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     },
     ai: {
       enabled: aiEnabled,
-      provider: parseAiProvider(env.AI_PROVIDER),
+      provider: parseProvider(env.AI_PROVIDER, 'AI_PROVIDER'),
       baseUrl: aiBaseUrl,
       apiKey: aiApiKey,
       model: aiModel,
@@ -143,6 +177,34 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       maxInputChars: parsePositiveInteger(env.AI_MAX_INPUT_CHARS, 4_000, 'AI_MAX_INPUT_CHARS', 100, 20_000),
       maxReplyChars: parsePositiveInteger(env.AI_MAX_REPLY_CHARS, 3_500, 'AI_MAX_REPLY_CHARS', 100, 20_000),
       maxOutputTokens: parsePositiveInteger(env.AI_MAX_OUTPUT_TOKENS, 800, 'AI_MAX_OUTPUT_TOKENS', 32, 8_192),
+    },
+    transcription: {
+      enabled: transcriptionEnabled,
+      provider: parseProvider(env.TRANSCRIPTION_PROVIDER, 'TRANSCRIPTION_PROVIDER'),
+      baseUrl: transcriptionBaseUrl,
+      apiKey: transcriptionApiKey,
+      model: transcriptionModel,
+      timeoutMs: parsePositiveInteger(
+        env.TRANSCRIPTION_TIMEOUT_MS,
+        60_000,
+        'TRANSCRIPTION_TIMEOUT_MS',
+        1_000,
+        180_000,
+      ),
+      maxBytes: parsePositiveInteger(
+        env.TRANSCRIPTION_MAX_BYTES,
+        15 * 1024 * 1024,
+        'TRANSCRIPTION_MAX_BYTES',
+        1_024,
+        25 * 1024 * 1024,
+      ),
+      maxTranscriptChars: parsePositiveInteger(
+        env.TRANSCRIPTION_MAX_CHARS,
+        6_000,
+        'TRANSCRIPTION_MAX_CHARS',
+        100,
+        20_000,
+      ),
     },
   };
 }

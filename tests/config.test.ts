@@ -28,24 +28,13 @@ test('AI is disabled by default and requires endpoint/model when enabled', () =>
   const disabled = loadConfig({});
   assert.equal(disabled.ai.enabled, false);
   assert.equal(disabled.ai.provider, 'openai-compatible');
-
   assert.throws(() => loadConfig({ AI_ENABLED: 'true' }), /AI_BASE_URL is required/);
-  assert.throws(
-    () => loadConfig({ AI_ENABLED: 'true', AI_BASE_URL: 'https://provider.example/v1', AI_API_KEY: 'key' }),
-    /AI_MODEL is required/,
-  );
+  assert.throws(() => loadConfig({ AI_ENABLED: 'true', AI_BASE_URL: 'https://provider.example/v1', AI_API_KEY: 'key' }), /AI_MODEL is required/);
 });
 
 test('AI remote endpoints require HTTPS and a key; loopback HTTP may omit a key', () => {
-  assert.throws(
-    () => loadConfig({ AI_ENABLED: 'true', AI_BASE_URL: 'http://provider.example/v1', AI_MODEL: 'model', AI_API_KEY: 'key' }),
-    /must use HTTPS/,
-  );
-  assert.throws(
-    () => loadConfig({ AI_ENABLED: 'true', AI_BASE_URL: 'https://provider.example/v1', AI_MODEL: 'model' }),
-    /AI_API_KEY is required/,
-  );
-
+  assert.throws(() => loadConfig({ AI_ENABLED: 'true', AI_BASE_URL: 'http://provider.example/v1', AI_MODEL: 'model', AI_API_KEY: 'key' }), /must use HTTPS/);
+  assert.throws(() => loadConfig({ AI_ENABLED: 'true', AI_BASE_URL: 'https://provider.example/v1', AI_MODEL: 'model' }), /AI_API_KEY is required/);
   const local = loadConfig({ AI_ENABLED: 'true', AI_BASE_URL: 'http://127.0.0.1:9000/v1', AI_MODEL: 'local-model' });
   assert.equal(local.ai.enabled, true);
   assert.equal(local.ai.apiKey, undefined);
@@ -55,4 +44,39 @@ test('AI configuration validates provider and numeric bounds', () => {
   assert.throws(() => loadConfig({ AI_PROVIDER: 'unknown' }), /Unsupported AI_PROVIDER/);
   assert.throws(() => loadConfig({ AI_TIMEOUT_MS: '10' }), /AI_TIMEOUT_MS/);
   assert.throws(() => loadConfig({ AI_MAX_OUTPUT_TOKENS: '999999' }), /AI_MAX_OUTPUT_TOKENS/);
+});
+
+test('transcription is disabled by default and validates explicit provider configuration', () => {
+  const disabled = loadConfig({});
+  assert.equal(disabled.transcription.enabled, false);
+  assert.throws(() => loadConfig({ TRANSCRIPTION_ENABLED: 'true' }), /TRANSCRIPTION_BASE_URL is required/);
+  assert.throws(() => loadConfig({
+    TRANSCRIPTION_ENABLED: 'true',
+    TRANSCRIPTION_BASE_URL: 'https://audio.example/v1',
+    TRANSCRIPTION_API_KEY: 'key',
+  }), /TRANSCRIPTION_MODEL is required/);
+});
+
+test('transcription remote endpoint requires TLS/key and validates limits', () => {
+  assert.throws(() => loadConfig({
+    TRANSCRIPTION_ENABLED: 'true',
+    TRANSCRIPTION_BASE_URL: 'http://audio.example/v1',
+    TRANSCRIPTION_MODEL: 'whisper',
+    TRANSCRIPTION_API_KEY: 'key',
+  }), /must use HTTPS/);
+  assert.throws(() => loadConfig({
+    TRANSCRIPTION_ENABLED: 'true',
+    TRANSCRIPTION_BASE_URL: 'https://audio.example/v1',
+    TRANSCRIPTION_MODEL: 'whisper',
+  }), /TRANSCRIPTION_API_KEY is required/);
+  assert.throws(() => loadConfig({ TRANSCRIPTION_MAX_BYTES: '100' }), /TRANSCRIPTION_MAX_BYTES/);
+  assert.throws(() => loadConfig({ TRANSCRIPTION_PROVIDER: 'unknown' }), /Unsupported TRANSCRIPTION_PROVIDER/);
+
+  const local = loadConfig({
+    TRANSCRIPTION_ENABLED: 'true',
+    TRANSCRIPTION_BASE_URL: 'http://localhost:8000/v1',
+    TRANSCRIPTION_MODEL: 'local-whisper',
+  });
+  assert.equal(local.transcription.enabled, true);
+  assert.equal(local.transcription.apiKey, undefined);
 });
