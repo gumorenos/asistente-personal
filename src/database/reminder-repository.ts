@@ -40,7 +40,7 @@ export class ReminderRepository {
         ORDER BY CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at ASC, id DESC
         LIMIT ?
       `)
-      .all(limit) as RawReminderRow[];
+      .all(limit) as unknown as RawReminderRow[];
     return rows.map(mapRow);
   }
 
@@ -56,7 +56,7 @@ export class ReminderRepository {
         ORDER BY due_at ASC, id ASC
         LIMIT ?
       `)
-      .all(nowIso, limit) as RawReminderRow[];
+      .all(nowIso, limit) as unknown as RawReminderRow[];
     return rows.map(mapRow);
   }
 
