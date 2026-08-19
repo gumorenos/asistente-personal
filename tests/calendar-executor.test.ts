@@ -97,6 +97,46 @@ test('failed execution can retry with the same idempotency key and incremented a
   db.close();
 });
 
+test('recent started execution lease blocks concurrent duplicate provider call', async () => {
+  const { db, actions, executions, provider, executor } = setup();
+  const id = createCalendarAction(actions);
+  const key = `calendar-create-action-${id}`;
+  const begin = executions.beginApproved(
+    id,
+    provider.name,
+    key,
+    '2026-08-19T03:59:00.000Z',
+    '2026-08-19T03:54:00.000Z',
+  );
+  assert.equal(begin.state, 'started');
+
+  assert.deepEqual(await executor.execute(id), { status: 'in_progress' });
+  assert.equal(provider.calls.length, 0);
+  assert.equal(executions.getByActionId(id)?.attemptCount, 1);
+  db.close();
+});
+
+test('stale started execution is recovered with the same idempotency key after crash window', async () => {
+  const { db, actions, executions, provider, executor } = setup();
+  const id = createCalendarAction(actions);
+  const key = `calendar-create-action-${id}`;
+  const begin = executions.beginApproved(
+    id,
+    provider.name,
+    key,
+    '2026-08-19T03:00:00.000Z',
+    '2026-08-19T02:55:00.000Z',
+  );
+  assert.equal(begin.state, 'started');
+
+  assert.deepEqual(await executor.execute(id), { status: 'executed', externalId: 'event-1' });
+  assert.equal(provider.calls.length, 1);
+  assert.equal(provider.calls[0]?.idempotencyKey, key);
+  assert.equal(executions.getByActionId(id)?.attemptCount, 2);
+  assert.equal(executions.getByActionId(id)?.status, 'succeeded');
+  db.close();
+});
+
 test('executor revalidates event time immediately before execution', async () => {
   const { db, actions, executions, provider } = setup();
   const id = createCalendarAction(actions);

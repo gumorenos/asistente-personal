@@ -3,6 +3,8 @@ import type { ActionRequestRepository } from '../database/action-request-reposit
 import type { AuditRepository } from '../database/audit-repository.ts';
 import type { CalendarCreateEventInput, CalendarProvider } from './types.ts';
 
+const EXECUTION_LEASE_MS = 5 * 60_000;
+
 export type CalendarExecutionResult =
   | { status: 'executed'; externalId: string }
   | { status: 'already_executed'; externalId?: string }
@@ -38,13 +40,22 @@ export class CalendarActionExecutor {
     if (!action || action.status !== 'approved') return { status: 'not_approved' };
     if (action.actionType !== 'calendar.create_event') return { status: 'unsupported_action' };
 
-    const input = parseCalendarPayload(action.payload, this.now());
+    const executionNow = this.now();
+    const input = parseCalendarPayload(action.payload, executionNow);
     if (!input) return { status: 'invalid_payload' };
 
     const idempotencyKey = `calendar-create-action-${action.id}`;
+    const startedAt = executionNow.toISOString();
+    const staleBeforeIso = new Date(executionNow.getTime() - EXECUTION_LEASE_MS).toISOString();
     let begin;
     try {
-      begin = this.executions.beginApproved(action.id, this.provider.name, idempotencyKey, this.now().toISOString());
+      begin = this.executions.beginApproved(
+        action.id,
+        this.provider.name,
+        idempotencyKey,
+        startedAt,
+        staleBeforeIso,
+      );
     } catch {
       return { status: 'failed' };
     }

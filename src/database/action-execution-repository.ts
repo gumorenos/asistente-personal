@@ -55,6 +55,7 @@ export class ActionExecutionRepository {
     provider: string,
     idempotencyKey: string,
     startedAt: string,
+    staleBeforeIso: string,
   ): BeginExecutionResult {
     this.database.native.exec('BEGIN IMMEDIATE');
     try {
@@ -85,20 +86,25 @@ export class ActionExecutionRepository {
         this.database.native.exec('COMMIT');
         return { state: 'already_succeeded', record: existing };
       }
-      if (existing.status === 'started') {
+      if (existing.status === 'started' && existing.startedAt > staleBeforeIso) {
         this.database.native.exec('COMMIT');
         return { state: 'already_started', record: existing };
       }
 
-      this.database.native
+      const retryableStatus = existing.status === 'failed' || existing.status === 'started';
+      if (!retryableStatus) throw new Error('Execution is not retryable');
+
+      const result = this.database.native
         .prepare(`
           UPDATE action_executions
           SET status = 'started', attempt_count = attempt_count + 1,
               error_code = NULL, external_id = NULL,
               started_at = ?, completed_at = NULL, updated_at = CURRENT_TIMESTAMP
-          WHERE action_request_id = ? AND status = 'failed'
+          WHERE action_request_id = ? AND status IN ('failed', 'started')
         `)
         .run(startedAt, actionRequestId);
+      if (result.changes !== 1) throw new Error('Could not acquire execution lease');
+
       const retried = this.getByActionId(actionRequestId);
       if (!retried) throw new Error('Could not retry execution');
       this.database.native.exec('COMMIT');
