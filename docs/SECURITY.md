@@ -31,15 +31,28 @@
 
 1. `TRANSCRIPTION_ENABLED=false` por defecto.
 2. Solo un audio que ya pasó la allowlist de self-chat puede recibir un `loadMedia` utilizable.
-3. Con transcripción deshabilitada el loader no se invoca y el audio no se descarga para esta capability.
-4. `fileLength` declarado se usa como pre-check; después se comprueba el tamaño real del buffer.
-5. Audio que excede el límite no se envía al proveedor.
-6. El buffer de audio no se persiste como archivo por la app; permanece efímero en memoria.
+3. Con transcripción deshabilitada el loader no se invoca.
+4. `fileLength` declarado se usa como pre-check; luego se comprueba el tamaño real del buffer.
+5. Audio que excede límites no se envía al proveedor.
+6. El buffer no se persiste como archivo por la app.
 7. Endpoint remoto exige HTTPS; HTTP solo loopback.
 8. `TRANSCRIPTION_API_KEY` queda en env y no entra en SQLite/audit/logs.
-9. Audit registra proveedor/modelo/tamaños/MIME/estado, nunca bytes de audio, nombre de archivo ni transcript.
-10. Error bodies upstream no se muestran.
-11. La transcripción es texto terminal: no se reinyecta al router y no ejecuta comandos.
+9. Audit no guarda bytes, nombre de archivo ni transcript.
+10. Bodies de error upstream no se muestran.
+11. El transcript es texto terminal y no ejecuta comandos.
+
+## Stage 2C action approval / Calendar proposal rules
+
+1. **Proposal is not execution.** `agenda ...` solo crea una fila local `action_requests` con estado `pending`.
+2. **Approval is not execution.** `aprueba acción #N` cambia estado local a `approved`; Stage 2C no contiene ningún Google Calendar client/executor.
+3. **Atomic decision.** Solo una acción `pending` puede pasar una vez a `approved` o `rejected`.
+4. **Expiry.** Propuestas Calendar tienen `expires_at=startAt`; una propuesta vencida no se lista ni puede aprobarse.
+5. **No hidden action creation from AI/audio.** Output de IA/transcripción no se reinyecta en `CalendarProposalCapability` ni en `ActionApprovalCapability`.
+6. **Bounded payloads.** `action_type`, summary y `payload_json` se validan/acotan antes de persistir.
+7. **Audit minimization.** Audit registra action type/timing/decision, no el título ni payload completo.
+8. **Local sensitive payload.** El payload Calendar se almacena en SQLite y debe tratarse con la misma sensibilidad que notas/reminders.
+9. **No external network requirement.** Crear/listar/aprobar/rechazar propuestas no requiere ni debe producir tráfico a Google.
+10. **Future executor must revalidate.** Una futura capa de write no podrá confiar solo en `approved`: deberá validar schema/vigencia/provider y usar idempotencia.
 
 ## Important limitations
 
@@ -47,16 +60,19 @@ Baileys usa el protocolo de WhatsApp Web y no la API oficial de Meta WhatsApp Bu
 
 Un proveedor remoto de IA recibe el prompt explícito después de `ia`/`ai`. Un proveedor remoto de transcripción recibe el audio autorizado cuando la transcripción está habilitada. Sus políticas de retención/privacidad deben revisarse antes de uso con datos sensibles.
 
+Stage 2C todavía no autentica contra Google y por diseño no puede crear/modificar eventos reales.
+
 ## Secrets
 
-Tratar como secretos `data/assistant.db`, WAL/SHM, `.env`, backups, pairing codes, `AI_API_KEY` y `TRANSCRIPTION_API_KEY`.
+Tratar como secretos `data/assistant.db`, WAL/SHM, `.env`, backups, pairing codes, `AI_API_KEY` y `TRANSCRIPTION_API_KEY`. Un futuro OAuth refresh token de Calendar también será secreto y no deberá aparecer en logs/audit.
 
 ## Permission levels
 
 - **Level 0:** lectura/resumen local.
 - **Level 1:** notas, recordatorios y gastos locales — Stage 1.
-- **Level 1E:** envío externo explícito de texto/audio para obtener una respuesta sin acciones — Stage 2A/2B.
-- **Level 2:** modificaciones externas como Calendar — requerirá confirmación explícita.
+- **Level 1E:** envío externo explícito de texto/audio para obtener respuesta sin acciones — Stage 2A/2B.
+- **Level 1P:** propuesta y consentimiento local para una futura acción externa, sin ejecución — Stage 2C.
+- **Level 2:** modificaciones externas como Calendar — requiere executor explícito, consentimiento previo, revalidación e idempotencia.
 - **Level 3:** comunicación a terceros — requerirá confirmación explícita cada vez.
 
-Stage 2A/2B no implementan Level 2 ni Level 3.
+Stage 2 actual no implementa Level 2 ni Level 3.
