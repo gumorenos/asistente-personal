@@ -203,7 +203,9 @@ export class BaileysWhatsAppTransport implements MessageTransport {
     // Observer and ignored third-party/group traffic never enters this store.
     this.retryMessages.save(raw);
 
-    const message = this.attachLazyAudioLoader(routed.message, raw, socket, baileysLogger);
+    // Media loaders are attached only after self-chat authorization. Observer never
+    // gets a path that can download audio or documents.
+    const message = this.attachLazySelfMediaLoader(routed.message, raw, socket, baileysLogger);
     if (this.config.logMessageContent) {
       logger.debug('Accepted self-chat message', { messageId: message.id, text: message.text });
     } else {
@@ -212,14 +214,20 @@ export class BaileysWhatsAppTransport implements MessageTransport {
     await this.handler?.(message);
   }
 
-  private attachLazyAudioLoader(
+  private attachLazySelfMediaLoader(
     message: IncomingMessage,
     raw: WAMessage,
     socket: WASocket,
     baileysLogger: never,
   ): IncomingMessage {
-    if (message.kind !== 'audio') return message;
-    const mimeType = raw.message?.audioMessage?.mimetype ?? 'audio/ogg';
+    if (message.kind !== 'audio' && message.kind !== 'document') return message;
+
+    const audio = raw.message?.audioMessage;
+    const document = raw.message?.documentMessage;
+    const mimeType = audio?.mimetype ?? document?.mimetype ?? (message.kind === 'audio' ? 'audio/ogg' : 'application/octet-stream');
+    const fileName = message.kind === 'audio'
+      ? `audio-${message.id}.ogg`
+      : document?.fileName ?? `document-${message.id}.bin`;
 
     return {
       ...message,
@@ -231,7 +239,7 @@ export class BaileysWhatsAppTransport implements MessageTransport {
         return {
           data: new Uint8Array(buffer),
           mimeType,
-          fileName: `audio-${message.id}.ogg`,
+          fileName,
         };
       },
     };
