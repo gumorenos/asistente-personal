@@ -35,15 +35,29 @@ test('observer retention scheduler purges by per-chat policy and audits only cou
   db.close();
 });
 
-test('observer retention scheduler prevents overlapping runs', async () => {
+test('observer retention scheduler safely reports zero when nothing is expired', async () => {
   const db = new AppDatabase(':memory:');
+  const chats = new ObservedChatRepository(db);
   const sink = new SqliteObservationSink(db);
   const audit = new AuditRepository(db);
   const scheduler = new ObserverRetentionScheduler(sink, audit, () => now);
 
-  const first = scheduler.runOnce();
-  const second = scheduler.runOnce();
-  assert.equal(await second, undefined);
-  assert.equal(await first, 0);
+  const jid = '51922222222@s.whatsapp.net';
+  chats.enable(jid, 'Reciente', 7);
+  sink.save({
+    messageId: 'recent',
+    chatJid: jid,
+    timestamp: Math.floor(now.getTime() / 1_000) - 60,
+    text: 'reciente',
+    kind: 'text',
+    isGroup: false,
+  });
+
+  assert.equal(await scheduler.runOnce(), 0);
+  assert.equal(sink.count(jid), 1);
+  const auditJson = JSON.stringify(audit.listRecent());
+  assert.match(auditJson, /observer\.retention\.purged/);
+  assert.match(auditJson, /\"purged\":0/);
+  assert.doesNotMatch(auditJson, /Reciente|51922222222|reciente/);
   db.close();
 });
