@@ -4,10 +4,12 @@ import { MemorySearchCapability } from '../src/capabilities/memory-search-capabi
 import type { IncomingMessage } from '../src/core/types.ts';
 import { AuditRepository } from '../src/database/audit-repository.ts';
 import { AppDatabase } from '../src/database/db.ts';
+import { ExpenseRepository } from '../src/database/expense-repository.ts';
 import { LocalMemorySearchRepository } from '../src/database/local-memory-search-repository.ts';
 import { MessageRepository } from '../src/database/message-repository.ts';
 import { NoteRepository } from '../src/database/note-repository.ts';
 import { ObservedChatRepository } from '../src/database/observed-chat-repository.ts';
+import { ReminderRepository } from '../src/database/reminder-repository.ts';
 import { RetentionRepository } from '../src/database/retention-repository.ts';
 import { SqliteObservationSink } from '../src/observer/sqlite-observation-sink.ts';
 import { compileFtsQuery } from '../src/search/fts-query.ts';
@@ -27,7 +29,7 @@ function incoming(id: string, text: string, timestamp = 1_777_000_000): Incoming
   };
 }
 
-test('migration v12 creates separate self and observer FTS5 indexes', () => {
+test('migrations v12/v13 install isolated FTS5 indexes and structured self-memory extension', () => {
   const db = new AppDatabase(':memory:');
   const rows = db.native.prepare(`
     SELECT name FROM sqlite_master
@@ -35,8 +37,10 @@ test('migration v12 creates separate self and observer FTS5 indexes', () => {
     ORDER BY name
   `).all() as Array<{ name: string }>;
   assert.deepEqual(rows.map((row) => row.name), ['observation_fts', 'self_memory_fts']);
-  const migration = db.native.prepare('SELECT 1 AS found FROM schema_migrations WHERE version = 12').get() as { found: number } | undefined;
-  assert.equal(migration?.found, 1);
+  for (const version of [12, 13]) {
+    const migration = db.native.prepare('SELECT 1 AS found FROM schema_migrations WHERE version = ?').get(version) as { found: number } | undefined;
+    assert.equal(migration?.found, 1);
+  }
   db.close();
 });
 
@@ -66,6 +70,94 @@ test('local memory finds self messages and notes with prefix and diacritic-insen
   assert.equal(meeting.length, 1);
   assert.equal(meeting[0]?.source, 'note');
   assert.match(meeting[0]?.text ?? '', /Álvaro/);
+  db.close();
+});
+
+test('Stage 3B indexes reminders and expenses and updates expense category search', () => {
+  const db = new AppDatabase(':memory:');
+  const reminders = new ReminderRepository(db);
+  const expenses = new ExpenseRepository(db);
+  const search = new LocalMemorySearchRepository(db);
+
+  const reminderId = reminders.create({
+    body: 'Pagar Visa del banco',
+    dueAt: '2026-08-25T15:00:00.000Z',
+    chatId: SELF_JID,
+  });
+  const expenseId = expenses.create({
+    amountMinor: 7850,
+    currency: 'PEN',
+    description: 'Taxi al aeropuerto',
+    category: 'transporte',
+    occurredAt: '2026-08-21T13:00:00.000Z',
+  });
+
+  const reminder = search.search('visa', { source: 'reminder' });
+  assert.equal(reminder.length, 1);
+  assert.equal(reminder[0]?.sourceId, String(reminderId));
+
+  const expense = search.search('taxi transporte', { source: 'expense' });
+  assert.equal(expense.length, 1);
+  assert.equal(expense[0]?.sourceId, String(expenseId));
+  assert.match(expense[0]?.text ?? '', /PEN 78\.50/);
+
+  assert.equal(expenses.setCategory(expenseId, 'movilidad'), true);
+  assert.equal(search.search('transporte', { source: 'expense' }).length, 0);
+  assert.equal(search.search('movilidad 78.50', { source: 'expense' }).length, 1);
+  db.close();
+});
+
+test('source filters prevent same-keyword mixing across self-memory types', () => {
+  const db = new AppDatabase(':memory:');
+  const notes = new NoteRepository(db);
+  const reminders = new ReminderRepository(db);
+  const expenses = new ExpenseRepository(db);
+  const search = new LocalMemorySearchRepository(db);
+
+  notes.create('orion nota privada');
+  reminders.create({ body: 'orion recordatorio', chatId: SELF_JID });
+  expenses.create({
+    amountMinor: 2500,
+    currency: 'PEN',
+    description: 'orion gasto',
+    occurredAt: '2026-08-21T13:00:00.000Z',
+  });
+
+  assert.deepEqual(search.search('orion', { source: 'note' }).map((row) => row.source), ['note']);
+  assert.deepEqual(search.search('orion', { source: 'reminder' }).map((row) => row.source), ['reminder']);
+  assert.deepEqual(search.search('orion', { source: 'expense' }).map((row) => row.source), ['expense']);
+  assert.equal(search.search('orion').length, 3);
+  db.close();
+});
+
+test('typed memory commands search only the requested source and audit no query content', async () => {
+  const db = new AppDatabase(':memory:');
+  const notes = new NoteRepository(db);
+  const expenses = new ExpenseRepository(db);
+  const audit = new AuditRepository(db);
+  const search = new LocalMemorySearchRepository(db);
+
+  notes.create('aeropuerto nota que no debe salir');
+  expenses.create({
+    amountMinor: 4200,
+    currency: 'PEN',
+    description: 'Taxi aeropuerto',
+    category: 'movilidad',
+    occurredAt: '2026-08-21T13:00:00.000Z',
+  });
+
+  const capability = new MemorySearchCapability(search, audit, 'America/Lima');
+  const result = await capability.handle(incoming('cmd-expense', 'busca gastos aeropuerto'));
+  assert.equal(result?.handled, true);
+  assert.match(result?.reply ?? '', /Memoria local · gastos/);
+  assert.match(result?.reply ?? '', /Gasto #/);
+  assert.match(result?.reply ?? '', /Taxi aeropuerto/);
+  assert.doesNotMatch(result?.reply ?? '', /nota que no debe salir/);
+
+  const auditJson = JSON.stringify(audit.listRecent());
+  assert.match(auditJson, /memory\.search/);
+  assert.match(auditJson, /"source":"expense"/);
+  assert.doesNotMatch(auditJson, /aeropuerto|Taxi/);
   db.close();
 });
 
