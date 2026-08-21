@@ -9,6 +9,7 @@ import { logger } from '../../core/logger.ts';
 import type { IncomingMessage, SendTextResult } from '../../core/types.ts';
 import type { AppDatabase } from '../../database/db.ts';
 import type { MessageRepository } from '../../database/message-repository.ts';
+import { WhatsAppMessageStore } from '../../database/whatsapp-message-store.ts';
 import type { IncomingMessageHandler, MessageTransport } from '../types.ts';
 import { routeNormalizedWhatsAppMessage } from './inbound-routing.ts';
 import { normalizeWhatsAppMessage } from './normalize-message.ts';
@@ -57,6 +58,7 @@ export class BaileysWhatsAppTransport implements MessageTransport {
   private readonly config: WhatsAppTransportConfig;
   private readonly database: AppDatabase;
   private readonly messages: MessageRepository;
+  private readonly retryMessages: WhatsAppMessageStore;
   private readonly observerHandler?: IncomingMessageHandler;
 
   constructor(
@@ -68,6 +70,7 @@ export class BaileysWhatsAppTransport implements MessageTransport {
     this.config = config;
     this.database = database;
     this.messages = messages;
+    this.retryMessages = new WhatsAppMessageStore(database);
     this.observerHandler = observerHandler;
     this.selfJids = new Set(config.selfJids);
   }
@@ -106,6 +109,7 @@ export class BaileysWhatsAppTransport implements MessageTransport {
     if (!this.socket || this.state !== 'open') throw new Error('WhatsApp transport is not connected');
 
     const sent = await this.socket.sendMessage(destination, { text });
+    if (sent) this.retryMessages.save(sent);
     const messageId = sent?.key.id ?? undefined;
     if (messageId) this.messages.markAssistantOutbound(messageId, destination);
     return { messageId };
@@ -122,7 +126,7 @@ export class BaileysWhatsAppTransport implements MessageTransport {
       browser: Browsers.ubuntu('Chrome'),
       markOnlineOnConnect: false,
       syncFullHistory: false,
-      getMessage: async () => undefined,
+      getMessage: async (key) => this.retryMessages.get(key),
     });
 
     this.socket = socket;
@@ -194,6 +198,10 @@ export class BaileysWhatsAppTransport implements MessageTransport {
       }
       return;
     }
+
+    // Persist only authorized self-chat content needed by Baileys getMessage/retry.
+    // Observer and ignored third-party/group traffic never enters this store.
+    this.retryMessages.save(raw);
 
     const message = this.attachLazyAudioLoader(routed.message, raw, socket, baileysLogger);
     if (this.config.logMessageContent) {
