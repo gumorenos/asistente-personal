@@ -20,7 +20,7 @@ WhatsApp / Baileys live messages.upsert
 retry store write          ObserverService
 (authorized self only)          |
       |                         v
-      +--> lazy audio       observed_chats guard
+      +--> lazy self media  observed_chats guard
       |    loader                |
       v                         v
 AssistantCore             SqliteObservationSink
@@ -37,6 +37,11 @@ AssistantCore             SqliteObservationSink
       |
       +--> Capability[] ordered
              |
+             +--> DocumentCapability -------------> local Poppler
+             |          |                              |
+             |          +--> documents ---------------+
+             |                    |
+             |                    +--> self_memory_fts
              +--> LocalCapabilities --------------> notes/reminders/expenses/audit
              |                                          |
              |                                          +--> self_memory_fts
@@ -65,7 +70,7 @@ El transporte Baileys tiene dos handlers conceptualmente distintos:
 - handler principal: recibe únicamente self-chat autorizado y puede llegar a `AssistantCore`;
 - handler Observer: opcional, recibe candidatos no-self y solo llama `ObserverService`.
 
-El handler Observer no ofrece una ruta de respuesta.
+El handler Observer no ofrece una ruta de respuesta. `loadMedia()` para audio/documentos solo se adjunta después de resolver la ruta self-chat; Observer retorna antes de ese punto.
 
 ## Capability boundary
 
@@ -76,7 +81,10 @@ Esto evita, por ejemplo:
 - que una respuesta IA se convierta en comando;
 - que una transcripción cree una nota/acción automáticamente;
 - que aprobar una propuesta ejecute Calendar por sí solo;
-- que contenido Observer llegue a capabilities de acciones.
+- que contenido Observer llegue a capabilities de acciones;
+- que el caption o texto extraído de un documento ejecute `anota`, `agenda`, etc.
+
+`DocumentCapability` es deliberadamente la primera capability: todo `kind=document` es terminal antes de `LocalCapabilities`.
 
 ## Stage 2A — AI provider boundary
 
@@ -159,7 +167,7 @@ Una ejecución reciente `started` actúa como lease contra concurrencia. Una lea
 - audit;
 - briefing delivery ledger.
 
-Los triggers Stage 3 eliminan automáticamente las entradas FTS asociadas cuando se elimina un mensaje/observación base.
+Los triggers Stage 3 eliminan automáticamente las entradas FTS asociadas cuando se elimina un mensaje/observación base. Documentos son estado de dominio y todavía no participan de esta retención operacional.
 
 ## Stage 2F — Observer read-only boundary
 
@@ -172,7 +180,7 @@ Observer requiere cuatro gates acumulativos:
 
 `ObserverService` solo acepta texto allowlisted. `SqliteObservationSink` vuelve a validar texto y usa la tabla dedicada `observations`, con PK `(chat_jid,message_id)`.
 
-No recibe `MessageTransport`, `AssistantCore`, capabilities de acciones, IA, transcripción ni Calendar. Por tanto no tiene una ruta para responder o ejecutar acciones.
+No recibe `MessageTransport`, `AssistantCore`, capabilities de acciones, IA, transcripción, documentos ni Calendar. Por tanto no tiene una ruta para responder, descargar media o ejecutar acciones.
 
 `ObserverRetentionScheduler` aplica independientemente la ventana 1–90 días de cada chat.
 
@@ -244,7 +252,7 @@ notes --------> self_memory_fts            observed_chats guard
 - `reminder`: body + fecha relevante `due_at` o creación;
 - `expense`: descripción + categoría + moneda + monto, con `occurred_at`.
 
-Los triggers mantienen el índice sincronizado con inserts/updates/deletes. Recategorizar un gasto, por ejemplo, sustituye sus términos indexados.
+Los triggers mantienen el índice sincronizado con inserts/updates/deletes.
 
 ### Query boundary
 
@@ -255,36 +263,57 @@ Los triggers mantienen el índice sincronizado con inserts/updates/deletes. Reca
 - prefix matching literal;
 - nunca ejecuta sintaxis FTS cruda suministrada por el usuario.
 
-`MemorySearchCapability` puede reducir el resultado mediante:
+`MemorySearchCapability` puede reducir el resultado mediante fuente exacta, `hoy/semana/mes` y custom range `desde YYYY-MM-DD hasta YYYY-MM-DD`, usando `APP_TIMEZONE`.
 
-- fuente exacta: message/note/reminder/expense;
-- `hoy`, `semana`, `mes` usando `APP_TIMEZONE`;
-- custom range local `desde YYYY-MM-DD hasta YYYY-MM-DD`, convertido a intervalo `[start,endExclusive)`.
+Observer search exige JID conocido exacto y nunca ofrece búsqueda global.
 
-Estos filtros solo estrechan el dominio autorizado; nunca agregan una fuente nueva.
+Stage 3 no llama AI, transcripción, Calendar, embeddings/vector DB ni agentes externos. Audit guarda solo metadata estructural/counts.
 
-### Observer search boundary
+## Stage 4A — local PDF boundary
 
-`ObserverSearchCapability` exige:
+Stage 4A amplía el dominio personal con una fuente `document`, pero no amplía autoridad de ejecución.
 
-- JID sintácticamente válido;
-- JID ya presente en `observed_chats`;
-- `MATCH` FTS + condición SQL exacta `chat_jid = ?`;
-- máximo 5 resultados de la capability actual.
+```text
+self document
+    |
+    v
+DocumentCapability (first/terminal)
+    |
+    +--> disabled / declared bytes / MIME -> STOP before download
+    |
+    v
+lazy WhatsApp media loader
+    |
+    +--> actual bytes / MIME / %PDF- -> STOP
+    |
+    v
+PopplerPdfExtractor
+    |
+    +--> private temp dir
+    +--> pdfinfo page bound
+    +--> pdftotext timeout/maxBuffer
+    +--> finally cleanup
+    |
+    v
+documents (text + metadata only)
+    |
+    v
+self_memory_fts source=document
+```
 
-No existe global/cross-chat Observer search ni scope temporal Observer en Stage 3.
+Decisiones:
 
-### No provider boundary crossing
-
-Stage 3 no llama:
-
-- AI provider;
-- transcription provider;
-- Google Calendar;
-- embeddings/vector DB;
-- OpenClaw/Claude/Codex.
-
-El audit guarda solo metadata estructural/counts. No guarda query, resultados ni las fechas concretas de un custom range.
+- v14 crea `documents` y triggers FTS;
+- `DOCUMENTS_ENABLED=false` por defecto;
+- solo PDFs con texto; OCR no pertenece a 4A;
+- byte/page/text/time limits se validan explícitamente;
+- el binario no se guarda en SQLite ni filesystem persistente;
+- SHA-256 se guarda como metadata local, pero no se copia al audit;
+- Poppler se ejecuta con `execFile`, sin shell interpolation;
+- errores externos no exponen stdout/stderr ni paths al usuario/audit;
+- el texto extraído nunca se reinyecta al router ni a IA;
+- `busca documentos ...` reutiliza el mismo FTS local de Stage 3;
+- Observer no recibe loader documental ni source `document`.
 
 ## Persistence
 
@@ -293,7 +322,8 @@ SQLite mantiene actualmente:
 - self-chat normalized messages y outbound IDs;
 - Baileys retry message contents (`whatsapp_message_store`) con alias PN/LID;
 - notes, reminders y expenses;
-- `self_memory_fts` para memoria personal;
+- documents: texto extraído + metadata mínima, nunca PDF raw;
+- `self_memory_fts` para memoria personal, incluyendo source `document`;
 - audit;
 - Baileys auth state;
 - action requests y action execution ledger;
@@ -302,7 +332,7 @@ SQLite mantiene actualmente:
 - text-only observations;
 - `observation_fts` para búsqueda Observer exact-JID.
 
-Audio/transcription buffers no se persisten como archivos por la app. Prompts/respuestas IA no se almacenan en audit.
+Audio/transcription buffers y PDF raw no se persisten como archivos por la app. Prompts/respuestas IA y contenido documental no se almacenan en audit.
 
 ## Release gates
 
@@ -311,8 +341,8 @@ npm ci
   -> typecheck
   -> tests
   -> runtime dependency audit
-  -> Docker linux/amd64
-  -> Docker linux/arm64
+  -> Docker linux/amd64 + pdfinfo/pdftotext smoke
+  -> Docker linux/arm64 + pdfinfo/pdftotext smoke
 ```
 
 Los gates automatizados no sustituyen el QA real registrado en `docs/QA-PENDING.md`.
@@ -321,12 +351,13 @@ Los gates automatizados no sustituyen el QA real registrado en `docs/QA-PENDING.
 
 - tool/function calling;
 - fallback automático a IA;
-- ejecución automática de transcripts;
+- ejecución automática de transcripts o documentos;
 - respuestas automáticas a terceros/grupos;
-- IA automática sobre contenido Observer;
+- IA automática sobre contenido Observer o documentos;
 - ingestión de media Observer;
 - full-history Observer;
 - búsqueda Observer global;
 - embeddings/vector search/RAG;
-- documentos (Stage 4);
+- OCR y PDFs escaneados (Stage 4B candidato);
+- Office document formats;
 - OpenClaw/Claude Code/Codex como dependencias del core.
