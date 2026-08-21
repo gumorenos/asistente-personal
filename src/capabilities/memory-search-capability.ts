@@ -6,11 +6,18 @@ import type {
   LocalMemorySource,
 } from '../database/local-memory-search-repository.ts';
 import { compileFtsQuery, FTS_QUERY_LIMITS } from '../search/fts-query.ts';
+import {
+  addCalendarDays,
+  isValidCalendarDate,
+  localPeriodRange,
+  zonedLocalToUtcIso,
+} from './time-utils.ts';
 import type { Capability, CapabilityResult } from './types.ts';
 
 const DEFAULT_LIMIT = 5;
 const MAX_ITEM_CHARS = 320;
 const MAX_REPLY_CHARS = 3_500;
+const MAX_CUSTOM_RANGE_DAYS = 3_660;
 
 const SOURCE_ALIASES: Record<string, LocalMemorySource> = {
   mensaje: 'message',
@@ -29,6 +36,17 @@ const SOURCE_LABELS: Record<LocalMemorySource, string> = {
   reminder: 'recordatorios',
   expense: 'gastos',
 };
+
+type TemporalScopeKind = 'all-time' | 'day' | 'week' | 'month' | 'custom';
+
+interface TemporalScope {
+  query: string;
+  kind: TemporalScopeKind;
+  label?: string;
+  fromEpochSeconds?: number;
+  toEpochSeconds?: number;
+  error?: string;
+}
 
 function compactText(text: string): string {
   const compact = text.replace(/\s+/g, ' ').trim();
@@ -59,21 +77,84 @@ function formatResult(result: LocalMemorySearchResult, timeZone: string): string
   return `• ${source} · ${formatLocalTimestamp(result.occurredAt, timeZone)} — ${compactText(result.text)}`;
 }
 
+function epochSeconds(iso: string): number {
+  return Math.floor(new Date(iso).getTime() / 1_000);
+}
+
+function parseIsoCalendarDate(value: string): { year: number; month: number; day: number } | undefined {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return undefined;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  return isValidCalendarDate(year, month, day) ? { year, month, day } : undefined;
+}
+
+function resolveTemporalScope(input: string, now: Date, timeZone: string): TemporalScope {
+  const text = input.trim();
+  const periodMatch = text.match(/^(hoy|semana|esta\s+semana|mes|este\s+mes)\s+(.+)$/i);
+  if (periodMatch?.[1] && periodMatch[2]) {
+    const raw = periodMatch[1].toLocaleLowerCase('es-PE').replace(/\s+/g, ' ');
+    const kind = raw === 'hoy' ? 'day' : raw.includes('semana') ? 'week' : 'month';
+    const range = localPeriodRange(now, timeZone, kind);
+    return {
+      query: periodMatch[2].trim(),
+      kind,
+      label: kind === 'day' ? 'hoy' : kind === 'week' ? 'esta semana' : 'este mes',
+      fromEpochSeconds: epochSeconds(range.startIso),
+      toEpochSeconds: epochSeconds(range.endIso),
+    };
+  }
+
+  const customMatch = text.match(/^desde\s+(\d{4}-\d{2}-\d{2})\s+hasta\s+(\d{4}-\d{2}-\d{2})\s+(.+)$/i);
+  if (customMatch?.[1] && customMatch[2] && customMatch[3]) {
+    const start = parseIsoCalendarDate(customMatch[1]);
+    const endInclusive = parseIsoCalendarDate(customMatch[2]);
+    if (!start || !endInclusive) {
+      return { query: customMatch[3].trim(), kind: 'custom', error: 'Rango de fechas inválido. Usa YYYY-MM-DD.' };
+    }
+    const startDay = Date.UTC(start.year, start.month - 1, start.day);
+    const endDay = Date.UTC(endInclusive.year, endInclusive.month - 1, endInclusive.day);
+    const spanDays = Math.floor((endDay - startDay) / 86_400_000) + 1;
+    if (spanDays < 1) {
+      return { query: customMatch[3].trim(), kind: 'custom', error: 'La fecha “desde” debe ser anterior o igual a “hasta”.' };
+    }
+    if (spanDays > MAX_CUSTOM_RANGE_DAYS) {
+      return { query: customMatch[3].trim(), kind: 'custom', error: `El rango máximo es ${MAX_CUSTOM_RANGE_DAYS} días.` };
+    }
+    const endExclusive = addCalendarDays(endInclusive, 1);
+    const startIso = zonedLocalToUtcIso({ ...start, hour: 0, minute: 0 }, timeZone);
+    const endIso = zonedLocalToUtcIso({ ...endExclusive, hour: 0, minute: 0 }, timeZone);
+    return {
+      query: customMatch[3].trim(),
+      kind: 'custom',
+      label: `${customMatch[1]} → ${customMatch[2]}`,
+      fromEpochSeconds: epochSeconds(startIso),
+      toEpochSeconds: epochSeconds(endIso),
+    };
+  }
+
+  return { query: text, kind: 'all-time' };
+}
+
 export class MemorySearchCapability implements Capability {
   readonly name = 'memory-search';
 
   private readonly searchRepository: LocalMemorySearchRepository;
   private readonly audit: AuditRepository;
   private readonly timeZone: string;
+  private readonly now: () => Date;
 
   constructor(
     searchRepository: LocalMemorySearchRepository,
     audit: AuditRepository,
     timeZone: string,
+    now: () => Date = () => new Date(),
   ) {
     this.searchRepository = searchRepository;
     this.audit = audit;
     this.timeZone = timeZone;
+    this.now = now;
   }
 
   async handle(message: IncomingMessage): Promise<CapabilityResult | undefined> {
@@ -84,10 +165,13 @@ export class MemorySearchCapability implements Capability {
 
     const rawSource = match[1]?.toLocaleLowerCase('es-PE');
     const source = rawSource ? SOURCE_ALIASES[rawSource] : undefined;
-    const query = match[2].trim();
-    if (!source && /^observaciones\s+/i.test(query)) return undefined;
+    const rawQuery = match[2].trim();
+    if (!source && /^observaciones\s+/i.test(rawQuery)) return undefined;
 
-    const compiled = compileFtsQuery(query);
+    const scope = resolveTemporalScope(rawQuery, this.now(), this.timeZone);
+    if (scope.error) return { handled: true, reply: `⚠️ ${scope.error}` };
+
+    const compiled = compileFtsQuery(scope.query);
     if (!compiled) {
       return {
         handled: true,
@@ -95,10 +179,12 @@ export class MemorySearchCapability implements Capability {
       };
     }
 
-    const results = this.searchRepository.search(query, {
+    const results = this.searchRepository.search(scope.query, {
       limit: DEFAULT_LIMIT,
       excludeMessageId: message.id,
       source,
+      fromEpochSeconds: scope.fromEpochSeconds,
+      toEpochSeconds: scope.toEpochSeconds,
     });
     const counts = {
       messages: results.filter((result) => result.source === 'message').length,
@@ -114,17 +200,19 @@ export class MemorySearchCapability implements Capability {
         tokenCount: compiled.tokenCount,
         returned: results.length,
         source: source ?? 'all',
+        temporalScope: scope.kind,
         ...counts,
       },
     });
 
+    const sourceScope = source ? ` en ${SOURCE_LABELS[source]}` : '';
+    const timeScope = scope.label ? ` · ${scope.label}` : '';
     if (results.length === 0) {
-      const scope = source ? ` en ${SOURCE_LABELS[source]}` : '';
-      return { handled: true, reply: `🔎 No encontré coincidencias${scope} en tu memoria local.` };
+      return { handled: true, reply: `🔎 No encontré coincidencias${sourceScope}${timeScope} en tu memoria local.` };
     }
 
-    const scope = source ? ` · ${SOURCE_LABELS[source]}` : '';
-    const lines = [`🔎 Memoria local${scope} · ${results.length} resultado${results.length === 1 ? '' : 's'}`];
+    const sourceHeader = source ? ` · ${SOURCE_LABELS[source]}` : '';
+    const lines = [`🔎 Memoria local${sourceHeader}${timeScope} · ${results.length} resultado${results.length === 1 ? '' : 's'}`];
     for (const result of results) {
       const line = formatResult(result, this.timeZone);
       if ([...lines, line].join('\n').length > MAX_REPLY_CHARS) break;
