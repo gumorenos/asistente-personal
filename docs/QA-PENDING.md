@@ -1,6 +1,6 @@
 # Testing / QA pending
 
-Updated: 2026-08-18 (America/Lima)
+Updated: 2026-08-20 (America/Lima)
 
 Este archivo es la fuente de verdad del QA que requiere una sesión real, infraestructura externa o condiciones operativas que no deben darse por aprobadas únicamente por tests automatizados. **El desarrollo puede continuar mientras estos checks permanecen pendientes.**
 
@@ -19,7 +19,7 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 
 - [ ] Desplegar primero con entorno/número no crítico.
 - [ ] Pairing real con `WHATSAPP_ENABLED=true`.
-- [ ] Allowlist vacía => cero procesamiento/respuestas.
+- [ ] Allowlist self vacía => cero procesamiento/respuestas.
 - [ ] Credenciales/Signal keys quedan en SQLite, sin auth JSON folder.
 - [ ] Restart de proceso y reboot físico de RPi reconectan sin pairing nuevo.
 - [ ] Logout => `logged_out` sin reconnect loop.
@@ -27,7 +27,7 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 - [ ] Validar PN y, si aplica, LID real.
 - [ ] `ping` => exactamente un `pong`; `estado` y `ayuda` funcionan.
 - [ ] Echo del propio reply no genera loop.
-- [ ] Terceros/grupos no se procesan ni reciben replies.
+- [ ] Terceros/grupos no reciben replies.
 - [ ] Caso PN/LID alternativo real responde por el JID autorizado.
 - [ ] Crear/listar/completar/archivar notas reales.
 - [ ] Capturar/categorizar/listar/resumir gastos reales.
@@ -39,7 +39,7 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 - [ ] `AI_ENABLED=false`: `ia hola` no genera tráfico externo.
 - [ ] Configurar endpoint OpenAI-compatible de prueba con credenciales no críticas.
 - [ ] `ia hola` => exactamente una llamada a `/chat/completions`.
-- [ ] Mensaje normal y comandos Stage 1 no generan tráfico al proveedor.
+- [ ] Mensaje normal y comandos locales no generan tráfico al proveedor.
 - [ ] Request contiene solo system prompt fijo + prompt explícito actual.
 - [ ] `audit_log` contiene metadata, nunca prompt/respuesta.
 - [ ] Logs no contienen API key, prompt o respuesta por defecto.
@@ -54,70 +54,148 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 - [ ] Audio de terceros/grupos no obtiene loader útil ni genera tráfico de transcripción.
 - [ ] Configurar endpoint OpenAI-compatible de prueba `/audio/transcriptions` con credenciales/modelo no críticos.
 - [ ] Nota de voz real OGG/Opus de WhatsApp se descarga una sola vez y se transcribe correctamente.
-- [ ] Verificar otros MIME que entregue la cuenta/dispositivo real antes de ampliar soporte declarado.
-- [ ] `fileLength` declarado mayor a `TRANSCRIPTION_MAX_BYTES` se rechaza **antes de descargar**.
-- [ ] Si el tamaño declarado es ausente/incorrecto, bytes reales por encima del límite se rechazan antes de subir.
-- [ ] Request al proveedor contiene audio + modelo, sin historial, notas, gastos, reminders ni mensajes adicionales.
-- [ ] `audit_log` no contiene bytes de audio, file name ni transcript.
-- [ ] Logs no contienen API key, audio ni transcript por defecto.
+- [ ] `fileLength` declarado mayor a `TRANSCRIPTION_MAX_BYTES` se rechaza antes de descargar.
+- [ ] Bytes reales por encima del límite se rechazan antes de subir aunque el tamaño declarado sea ausente/incorrecto.
+- [ ] Request contiene solo audio + modelo, sin historial ni estado local adicional.
+- [ ] Audit/logs no contienen audio, filename, transcript ni API key.
 - [ ] HTTP 401/429/500 y timeout generan respuesta segura sin body upstream.
-- [ ] Transcript que diga `anota ...`, `recuérdame ...` u otro comando se muestra como texto y **no se ejecuta**.
-- [ ] Probar `TRANSCRIPTION_MAX_BYTES`, `TRANSCRIPTION_MAX_CHARS` y timeout en deployment real.
-- [ ] Medir pico de RAM en RPi5 cerca del límite máximo de audio.
-- [ ] Medir latencia/costo y revisar retención/privacidad del proveedor elegido antes de audio sensible.
+- [ ] Transcript con sintaxis `anota`, `recuérdame`, `agenda`, etc. se muestra como texto y no se ejecuta.
+- [ ] Medir RAM, latencia/costo y revisar retención/privacidad del proveedor antes de audio sensible.
 
-## Stage 2C — approval boundary / Calendar proposals
+## Stage 2C — proposal + approval boundary
 
 ### Automated development checks
 
-- [x] `action_requests` persiste propuestas locales con estados `pending`, `approved` y `rejected`.
-- [x] Aprobar/rechazar es una transición atómica solo desde `pending`.
-- [x] `agenda ...` reutiliza el parser horario determinista y crea `calendar.create_event` pendiente sin llamar a Google.
-- [x] Duración default 60 min; `por/durante N minutos/horas` se valida entre 5 min y 8 h.
-- [x] Propuesta Calendar expira al llegar su hora de inicio: deja de listarse y ya no puede aprobarse.
-- [x] `acciones` muestra summary local, no el payload completo.
-- [x] Audit registra tipo/timing/decisión, no payload ni título de la propuesta.
-- [x] Aprobar responde explícitamente que **no ejecutó** la acción; no existe executor externo en Stage 2C.
+- [x] `action_requests` persiste `pending`, `approved` y `rejected`.
+- [x] Aprobar/rechazar es transición atómica solo desde `pending`.
+- [x] `agenda ...` crea `calendar.create_event` pendiente con parser determinista.
+- [x] Duración 5 min–8 h, default 60 min.
+- [x] Propuesta expira al llegar la hora de inicio.
+- [x] `acciones` no expone payload completo.
+- [x] Audit no almacena título/payload sensible.
+- [x] Aprobar por sí solo no ejecuta el write externo.
 
-### Manual / real self-chat QA
+### Manual / self-chat QA
 
-- [ ] `agenda mañana a las 10 reunión de prueba por 30 minutos` crea una única propuesta pendiente y no un evento real.
-- [ ] `acciones` muestra la propuesta y no expone campos internos del payload.
-- [ ] `aprueba acción #N` cambia a `approved` una sola vez y no genera tráfico a Google Calendar.
-- [ ] `rechaza acción #N` cambia a `rejected` una sola vez y no genera tráfico externo.
-- [ ] Reiniciar proceso/RPi con propuesta pendiente y confirmar persistencia del estado.
-- [ ] Intentar aprobar una propuesta después de su hora de inicio y confirmar rechazo por caducidad.
-- [ ] Confirmar mediante captura/logs de red que `agenda`, `acciones`, aprobación y rechazo no contactan `googleapis.com` ni otro Calendar provider.
-- [ ] Revisar `audit_log`: no debe contener título/payload sensible de la propuesta.
-- [ ] Validar frases reales con `mañana`, weekday, `DD/MM`, fecha ISO y duración en America/Lima.
+- [ ] `agenda mañana a las 10 reunión de prueba por 30 minutos` crea una única propuesta.
+- [ ] `aprueba acción #N` cambia una sola vez a `approved` y todavía no crea evento.
+- [ ] `rechaza acción #N` cambia una sola vez a `rejected`.
+- [ ] Persistencia de pending/approved/rejected tras restart/reboot.
+- [ ] Propuesta caducada no puede aprobarse.
+- [ ] Audit real no contiene título/payload.
+- [ ] Frases con mañana, weekdays, `DD/MM`, ISO y duración funcionan en America/Lima.
+
+## Stage 2D — Google Calendar execution — manual / external QA
+
+### Automated development checks
+
+- [x] Executor acepta únicamente `approved` + `calendar.create_event` válido.
+- [x] Revalida fecha/payload inmediatamente antes del write.
+- [x] Ledger local guarda ejecución e idempotency key sin payload sensible.
+- [x] Retry reutiliza la misma idempotency key.
+- [x] Lease bloquea doble ejecución concurrente y recupera `started` huérfano.
+- [x] Provider Google usa event ID determinista para idempotencia remota.
+- [x] `409 duplicate` se recupera mediante lookup del event ID esperado.
+- [x] `401` permite un único refresh/retry controlado.
+- [x] `CALENDAR_ENABLED=false` por defecto.
+- [x] Incluso habilitado, requiere `aprueba acción #N` + `ejecuta acción #N` separados.
+
+### Manual / Google QA
+
+- [ ] Crear OAuth client de prueba con mínimo alcance necesario y obtener refresh token no crítico.
+- [ ] Verificar token refresh real y que secretos nunca entren a SQLite/audit/logs.
+- [ ] Con `CALENDAR_ENABLED=false`, `ejecuta acción #N` no genera tráfico Google.
+- [ ] Acción pending/rejected/caducada jamás crea evento.
+- [ ] Acción approved solo crea evento después de `ejecuta acción #N`.
+- [ ] Repetir `ejecuta acción #N` no crea duplicado.
+- [ ] Simular caída después del create remoto y antes del commit local; retry recupera el mismo evento.
+- [ ] Verificar timezone, duración y título del evento real.
+- [ ] Invalid/revoked refresh token falla de forma segura.
+- [ ] Revisar scopes OAuth, almacenamiento de `.env`/secret y estrategia de rotación antes de uso diario.
+
+## Stage 2E — personal briefing / retention — manual QA
+
+### Automated development checks
+
+- [x] `briefing` es determinista y no usa IA.
+- [x] Scheduler diario es opt-in y deduplica por fecha local.
+- [x] Destino de briefing debe estar explícitamente en `WHATSAPP_SELF_JIDS`.
+- [x] Retención operacional es opt-in y no toca notas/gastos/recordatorios/acciones/allowlists/credenciales.
+
+### Manual
+
+- [ ] `briefing` muestra próximos recordatorios, notas activas, gasto del mes y acciones pendientes con datos reales.
+- [ ] `BRIEFING_ENABLED=false` => cero envío programado.
+- [ ] Briefing programado se entrega una sola vez por día local incluso tras restart.
+- [ ] Retry offline no produce duplicados.
+- [ ] `RETENTION_ENABLED=false` no elimina filas operativas.
+- [ ] Activar ventanas cortas en DB de prueba y confirmar purge exacto de messages/outbound/audit/briefing deliveries.
+- [ ] Confirmar que estado de dominio y credenciales sobreviven al purge.
+- [ ] Backup/restore antes y después del purge; revisar WAL/SHM y tamaño real del DB.
+
+## Stage 2F — Observer read-only — manual / release-blocking before daily use
+
+### Automated development checks
+
+- [x] `observed_chats` es una allowlist SQLite separada de `WHATSAPP_SELF_JIDS`.
+- [x] Soporta JID directo, LID y grupo; default de retención 7 días, rango 1–90.
+- [x] `ObserverService` no conoce `MessageTransport`, `AssistantCore`, capabilities ni providers externos.
+- [x] Tabla `observations` dedicada, migración central versión 9, unique `(chat_jid,message_id)`.
+- [x] Sink vuelve a imponer texto-only y máximo 4.000 caracteres.
+- [x] Media observada se rechaza sin `loadMedia()`.
+- [x] Routing self/observer es mutuamente excluyente.
+- [x] Con Observer deshabilitado, no-self queda ignorado como antes.
+- [x] `OBSERVER_ENABLED=false` por defecto.
+- [x] Activarlo exige `WHATSAPP_ENABLED=true` + self-JID administrativo explícito.
+- [x] Deshabilitar un chat detiene writes nuevos inmediatamente.
+- [x] Purge propio de Observer usa `retention_days` de cada chat y no depende de `RETENTION_ENABLED`.
+- [x] Observer no tiene ruta de `sendText`, IA, transcripción, Calendar ni creación de acciones.
+
+### Manual / real WhatsApp QA
+
+- [ ] Con `OBSERVER_ENABLED=false`, un JID presente en `observed_chats` produce **cero filas** nuevas en `observations`.
+- [ ] Con Observer habilitado y allowlist vacía, terceros/grupos producen cero filas.
+- [ ] Agregar desde self-chat `observa chat <jid> como <label>` y confirmar que solo ese chat comienza a persistir texto.
+- [ ] Chat no allowlisted nunca se persiste.
+- [ ] Grupo allowlisted persiste `chat_jid`, sender y texto correctamente.
+- [ ] PN/LID alternativo real se canonicaliza al JID que está allowlisted.
+- [ ] Mensaje observado jamás produce reply, read-receipt adicional intencional, nota, gasto, recordatorio, acción, IA, transcripción ni Calendar traffic.
+- [ ] Audio/imagen/documento/video observado no descarga media y no crea fila de observación.
+- [ ] Duplicado/resend del mismo message ID crea una sola fila.
+- [ ] `deja de observar <jid>` detiene nuevas filas sin restart.
+- [ ] Restart/reboot conserva allowlist y observaciones existentes.
+- [ ] Retención real elimina cada chat según su ventana; un chat de 1 día no afecta uno de 30 días.
+- [ ] Logs normales de Observer no contienen texto, JID, label ni contenido observado.
+- [ ] Medir CPU/RAM/crecimiento DB con Observer activo durante al menos 24h.
+- [ ] Revisar consentimiento, necesidad y minimización de datos antes de observar chats que involucren a terceros.
 
 ## Health / operations — manual
 
 - [ ] `/healthz` 200 y `/readyz` refleja DB/transport en deployment real.
 - [ ] Puerto health no expuesto públicamente.
-- [ ] SIGTERM/SIGINT cierra scheduler, transport, health y SQLite.
+- [ ] SIGTERM/SIGINT cierra todos los schedulers, transport, health y SQLite.
 - [ ] Recuperación WAL/SHM después de kill no limpio.
 - [ ] Permisos reales de directorio/DB en RPi.
-- [ ] Backup/restore y row counts/migrations, incluyendo `action_requests`.
+- [ ] Backup/restore y row counts/migrations 1→9 desde DB nueva y sobre DB existente.
 - [ ] Consumo CPU/RAM estable durante al menos 24h.
 
-## Baileys reliability gaps before Observer mode
+## Baileys reliability gaps
 
-- [ ] Persisted raw WhatsApp message store para `getMessage()`.
-- [ ] Validar resend/missing-message recovery.
+- [ ] Persisted raw WhatsApp message store para `getMessage()` antes de depender de resend/missing-message recovery.
+- [ ] Validar resend/missing-message recovery real.
 - [ ] Validar versión Baileys fijada contra comportamiento real actual.
 - [ ] Revisar upgrades separadamente; no auto-upgrade.
 
-## Privacy/security before non-self chats or external writes
+## Privacy/security decisions still pending
 
-- [x] Boundary local de propuesta + aprobación/rechazo existe antes de Calendar write.
-- [ ] Calendar executor/provider debe consumir **solo** acciones `approved`, revalidar payload/fecha justo antes de ejecutar y registrar resultado/idempotency key.
-- [ ] Calendar OAuth/token storage y refresh strategy deben definirse y threat-modelarse antes de habilitar writes.
-- [ ] Chat-level allowlist y workflow administrativo antes de Observer/non-self chats.
-- [ ] Retention/purge jobs.
-- [ ] Decidir cifrado de SQLite/backups.
-- [ ] Tests que prueben que third-party outbound no ocurre sin aprobación.
+- [x] Boundary propuesta + aprobación antes de Calendar write.
+- [x] Calendar execution con ledger/idempotencia y doble acto explícito.
+- [x] Chat-level Observer allowlist + workflow administrativo.
+- [x] Retention/purge operacional y per-chat Observer.
+- [ ] Decidir cifrado de SQLite y backups en el dispositivo final.
+- [ ] Definir política de consentimiento/retención para chats observados antes de uso con terceros.
+- [ ] Validar mediante QA real que third-party outbound permanece imposible.
 
 ## Stop point for risky features
 
-Stage 1 está cerrado a nivel de desarrollo pero mantiene QA real pendiente. Stage 2A/2B tienen sus pruebas externas pendientes. Stage 2C ya separa propuesta de aprobación, pero **no existe todavía Calendar executor/provider**. Observer, respuestas a terceros y Calendar writes siguen bloqueados hasta implementar y validar sus boundaries de ejecución/autorización.
+El desarrollo automatizado puede continuar, pero **ningún QA manual anterior se considera aprobado**. Calendar writes, briefing programado y Observer siguen opt-in y requieren sus pruebas externas/reales antes de uso diario. Observer es estrictamente read-only: no se implementará respuesta automática a terceros dentro de este gate.
