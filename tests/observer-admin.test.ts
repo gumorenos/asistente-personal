@@ -10,11 +10,11 @@ function message(text: string): IncomingMessage {
   return { id: `obs-${text}`, chatId: '51911111111@s.whatsapp.net', timestamp: 1, text, kind: 'text', fromMe: true, isGroup: false };
 }
 
-function setup() {
+function setup(observerEnabled = false) {
   const db = new AppDatabase(':memory:');
   const chats = new ObservedChatRepository(db);
   const audit = new AuditRepository(db);
-  const capability = new ObserverAdminCapability(chats, audit);
+  const capability = new ObserverAdminCapability(chats, audit, observerEnabled);
   return { db, chats, audit, capability };
 }
 
@@ -29,21 +29,31 @@ test('observed chat repository validates direct, lid and group JIDs', () => {
   db.close();
 });
 
-test('observer admin adds, lists and disables allowlisted chat without activating observer', async () => {
-  const { db, chats, capability } = setup();
+test('observer admin adds, lists and disables allowlisted chat while observer is disabled', async () => {
+  const { db, chats, capability } = setup(false);
   const add = (await capability.handle(message('observa chat 120363123456789@g.us como Familia')))?.reply ?? '';
   assert.match(add, /allowlist/);
-  assert.match(add, /NO está activo/);
+  assert.match(add, /sigue deshabilitado/);
   assert.equal(chats.isEnabled('120363123456789@g.us'), true);
 
   const list = (await capability.handle(message('chats observados')))?.reply ?? '';
   assert.match(list, /Familia/);
   assert.match(list, /retención 7 días/);
-  assert.match(list, /NO activa Observer/);
+  assert.match(list, /DESHABILITADO/);
 
   const remove = (await capability.handle(message('deja de observar 120363123456789@g.us')))?.reply ?? '';
   assert.match(remove, /retirado/);
   assert.equal(chats.isEnabled('120363123456789@g.us'), false);
+  db.close();
+});
+
+test('observer admin states read-only capture explicitly when observer is enabled', async () => {
+  const { db, capability } = setup(true);
+  const add = (await capability.handle(message('observa chat 51922222222@s.whatsapp.net como Trabajo')))?.reply ?? '';
+  assert.match(add, /persistir únicamente texto/);
+  assert.match(add, /no responderá ni ejecutará acciones/);
+  const list = (await capability.handle(message('chats observados')))?.reply ?? '';
+  assert.match(list, /read-only está ACTIVO/);
   db.close();
 });
 
