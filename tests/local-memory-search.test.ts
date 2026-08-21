@@ -80,7 +80,7 @@ test('local memory excludes the current search command and never crosses into Ob
   const observerJid = '51922222222@s.whatsapp.net';
 
   notes.create('clavepersonal presupuesto casa');
-  chats.upsert(observerJid, 'Trabajo');
+  chats.enable(observerJid, 'Trabajo');
   observer.save({
     chatJid: observerJid,
     messageId: 'obs-1',
@@ -120,6 +120,7 @@ test('message retention deletion removes its FTS entry through trigger', () => {
 
   retention.purge({
     messageBeforeEpochSeconds: 1_750_000_000,
+    whatsappBeforeIso: '2000-01-01T00:00:00.000Z',
     outboundBeforeIso: '2000-01-01T00:00:00.000Z',
     auditBeforeIso: '2000-01-01T00:00:00.000Z',
     briefingBeforeIso: '2000-01-01T00:00:00.000Z',
