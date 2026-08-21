@@ -27,20 +27,21 @@ Evidencia obtenida en ese run:
 - PASS local / PENDING real: Observer allowlist, PN/LID simulado, media sin loader, idempotencia, lectura limitada, disable y retención.
 - PASS parcial operaciones: health/readiness local, loopback, SIGTERM, WAL, migraciones 1–9 de ese commit y backup/restore básico.
 - PENDING: pairing WhatsApp, restart/reboot/red reales, PN/LID/grupos reales, outbound real a terceros bloqueado, voice note real, Google/AI externos, briefing/Observer live, estabilidad 24 h.
-- En `271402b` se confirmó que `getMessage` devolvía siempre `undefined`; este gap de implementación se aborda después de ese run mediante migración v10 + store persistente. El recovery real sigue pendiente hasta disponer de sesión WhatsApp QA.
+- En `271402b` se confirmó que `getMessage` devolvía siempre `undefined`; este gap de implementación fue abordado después de ese run mediante store persistente v10 y alias PN/LID v11. El recovery real sigue pendiente hasta disponer de sesión WhatsApp QA.
 
 No se marcaron como PASS los checks que requieren WhatsApp/Google/proveedor externo/24 h solo por haber pasado pruebas locales.
 
-## Stage 1 — automated development gates completed
+## Automated development gates — current Stage 2 head
 
-- [x] `package-lock.json` + `npm ci`.
+- [x] `npm ci` reproducible.
 - [x] TypeScript strict en Node 22.18.
-- [x] Core, SQLite, capabilities, scheduler, configuración, PN/LID y health/readiness cubiertos.
-- [x] Notas, gastos y recordatorios con lifecycle/audit.
-- [x] Runtime dependency audit.
-- [x] Docker `linux/amd64` y `linux/arm64`.
+- [x] 134/134 tests después de incorporar el retry store PN/LID-aware.
+- [x] Runtime dependency audit: 0 vulnerabilidades high+.
+- [x] Docker `linux/amd64`.
+- [x] Docker `linux/arm64`.
+- [x] Migraciones centrales 1→11 sobre DB nueva cubiertas automáticamente.
 
-Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker**.
+Estos gates no sustituyen el QA manual detallado abajo.
 
 ## Stage 1 — WhatsApp/RPi — manual / release-blocking
 
@@ -156,7 +157,7 @@ Evidencia local OpenClaw 2026-08-21: boundary de Calendar PASS; QA Google quedó
 - [x] Scheduler diario es opt-in y deduplica por fecha local.
 - [x] Destino de briefing debe estar explícitamente en `WHATSAPP_SELF_JIDS`.
 - [x] Retención operacional es opt-in y no toca notas/gastos/recordatorios/acciones/allowlists/credenciales.
-- [x] Desde migración v10, `whatsapp_message_store` sigue `MESSAGE_RETENTION_DAYS` cuando `RETENTION_ENABLED=true`.
+- [x] `whatsapp_message_store` sigue `MESSAGE_RETENTION_DAYS` cuando `RETENTION_ENABLED=true`.
 
 ### Manual
 
@@ -169,7 +170,7 @@ Evidencia local OpenClaw 2026-08-21: boundary de Calendar PASS; QA Google quedó
 - [ ] Confirmar que estado de dominio y credenciales sobreviven al purge.
 - [ ] Backup/restore antes y después del purge; revisar WAL/SHM y tamaño real del DB.
 
-Evidencia local OpenClaw 2026-08-21: briefing, dedupe/retry y purge de tablas existentes en `271402b` PASS. El store v10 se valida por tests posteriores y requiere nuevo QA real.
+Evidencia local OpenClaw 2026-08-21: briefing, dedupe/retry y purge de tablas existentes en `271402b` PASS. El retry store se validó posteriormente por tests automáticos y requiere nuevo QA real.
 
 ## Stage 2F — Observer read-only — manual / release-blocking before daily use
 
@@ -190,7 +191,7 @@ Evidencia local OpenClaw 2026-08-21: briefing, dedupe/retry y purge de tablas ex
 - [x] Observer no tiene ruta de `sendText`, IA, transcripción, Calendar ni creación de acciones.
 - [x] `observaciones <jid> [1-10]` es una lectura self-chat explícita, exacta por JID, sin IA y con salida acotada.
 - [x] Lecturas Observer se auditan con hash del JID + counts, nunca con JID/texto/label crudos.
-- [x] El nuevo `whatsapp_message_store` se escribe únicamente después de resolver la ruta self-chat; Observer/ignored retornan antes y no duplican contenido raw en ese store.
+- [x] `whatsapp_message_store` se escribe únicamente después de resolver la ruta self-chat; Observer/ignored retornan antes y no duplican contenido raw.
 
 ### Manual / real WhatsApp QA
 
@@ -224,26 +225,30 @@ Evidencia local OpenClaw 2026-08-21: allowlist, PN/LID simulado, dedupe, media s
 - [ ] SIGTERM/SIGINT cierra todos los schedulers, transport, health y SQLite.
 - [ ] Recuperación WAL/SHM después de kill no limpio.
 - [ ] Permisos reales de directorio/DB en RPi.
-- [ ] Backup/restore y row counts/migrations 1→10 desde DB nueva y sobre DB existente.
+- [ ] Backup/restore y row counts/migrations 1→11 desde DB nueva y sobre DB existente.
 - [ ] Consumo CPU/RAM estable durante al menos 24h.
 
-Evidencia OpenClaw 2026-08-21 sobre `271402b`: health/readiness local PASS con transport disabled, loopback PASS, SIGTERM PASS, WAL activo, migraciones 1–9 de ese commit y backup/restore básico PASS. Repetir migraciones incluyendo v10 y deployment final.
+Evidencia OpenClaw 2026-08-21 sobre `271402b`: health/readiness local PASS con transport disabled, loopback PASS, SIGTERM PASS, WAL activo, migraciones 1–9 de ese commit y backup/restore básico PASS. Repetir migraciones incluyendo v10/v11 y deployment final.
 
-## Baileys reliability
+## Stage 2G — Baileys retry/recovery
 
 ### Automated development checks
 
-- [x] Migración v10 crea `whatsapp_message_store` persistente con key `(remote_jid,message_id)`.
+- [x] Migración v10 crea `whatsapp_message_store` persistente con PK `(remote_jid,message_id)`.
+- [x] Migración v11 añade `remote_jid_alt` e índice PN/LID.
 - [x] `getMessage` consulta el store en vez de devolver siempre `undefined`.
 - [x] Respuestas enviadas por el asistente se guardan inmediatamente después de `sendMessage`.
 - [x] Mensajes inbound solo se guardan después de resolver self-chat autorizado; Observer/ignored no entran al raw retry store.
 - [x] Serialización usa `BufferJSON` y preserva `Uint8Array`/campos binarios.
-- [x] Upsert es idempotente y el lookup es exacto por JID + message ID.
+- [x] Upsert es idempotente y el lookup exige el mismo `message_id` más primary/alias JID.
+- [x] El mismo mensaje se recupera por PN o LID y un resend con identidades invertidas no duplica la fila ni pierde el alias.
 - [x] Con retención operacional habilitada, el store sigue `MESSAGE_RETENTION_DAYS`.
+- [x] Test de transporte demuestra que Observer y tráfico ignored dejan el retry store sin filas.
 
 ### Manual / real WhatsApp QA
 
 - [ ] Validar que mensajes self reales crean filas recuperables en `whatsapp_message_store` y sobreviven restart.
+- [ ] Validar con PN/LID reales que el mismo `message_id` se recupera por cualquiera de las identidades entregadas por Baileys.
 - [ ] Forzar/observar `getMessage()` real durante resend/missing-message recovery.
 - [ ] Validar resend/missing-message recovery real end-to-end.
 - [ ] Confirmar que terceros/grupos/Observer no generan filas raw.
@@ -258,6 +263,7 @@ Evidencia OpenClaw 2026-08-21 sobre `271402b`: health/readiness local PASS con t
 - [x] Chat-level Observer allowlist + workflow administrativo.
 - [x] Retention/purge operacional y per-chat Observer.
 - [x] Raw retry store limitado por código a self-chat autorizado/outbound y excluido de Observer.
+- [x] Alias PN/LID del retry store no amplía el lookup sin coincidencia del mismo `message_id`.
 - [ ] Decidir cifrado de SQLite y backups en el dispositivo final.
 - [ ] Definir política de consentimiento/retención para chats observados antes de uso con terceros.
 - [ ] Validar mediante QA real que third-party outbound permanece imposible.
