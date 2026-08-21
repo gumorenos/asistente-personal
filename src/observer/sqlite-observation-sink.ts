@@ -48,7 +48,7 @@ export class SqliteObservationSink implements ObservationSink {
         text,
         observation.isGroup ? 1 : 0,
       );
-    return result.changes === 1;
+    return Number(result.changes) === 1;
   }
 
   listRecent(chatJidInput: string, limit = 50): StoredObservation[] {
@@ -81,15 +81,15 @@ export class SqliteObservationSink implements ObservationSink {
         )
       `)
       .run(nowEpochSeconds);
-    return result.changes;
+    return Number(result.changes);
   }
 
   count(chatJidInput: string): number {
     const chatJid = normalizeObservedJid(chatJidInput);
     const row = this.database.native
       .prepare('SELECT COUNT(*) AS count FROM observations WHERE chat_jid = ?')
-      .get(chatJid) as { count: number };
-    return row.count;
+      .get(chatJid) as { count: number | bigint };
+    return Number(row.count);
   }
 }
 
