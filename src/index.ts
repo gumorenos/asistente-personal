@@ -13,6 +13,7 @@ import { CalendarExecutionCapability } from './capabilities/calendar-execution-c
 import { CalendarProposalCapability } from './capabilities/calendar-proposal-capability.ts';
 import { LocalCapabilities } from './capabilities/local-capabilities.ts';
 import { ObserverAdminCapability } from './capabilities/observer-admin-capability.ts';
+import { ObserverReadCapability } from './capabilities/observer-read-capability.ts';
 import type { Capability } from './capabilities/types.ts';
 import { loadConfig } from './config.ts';
 import { AssistantCore } from './core/assistant.ts';
@@ -134,6 +135,7 @@ const capabilities: Capability[] = [
   new LocalCapabilities(notes, reminders, expenses, audit, config.timeZone),
   new BriefingCapability(briefingService),
   new ObserverAdminCapability(observedChats, audit, config.observer.enabled),
+  new ObserverReadCapability(observedChats, observationSink, audit, config.timeZone),
   new CalendarProposalCapability(actions, audit, config.timeZone),
   new ActionApprovalCapability(actions, audit),
   new CalendarExecutionCapability(config.calendar.enabled, calendarExecutor),
