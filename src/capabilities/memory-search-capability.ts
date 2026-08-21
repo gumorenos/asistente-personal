@@ -1,12 +1,34 @@
 import type { IncomingMessage } from '../core/types.ts';
 import type { AuditRepository } from '../database/audit-repository.ts';
-import type { LocalMemorySearchRepository, LocalMemorySearchResult } from '../database/local-memory-search-repository.ts';
+import type {
+  LocalMemorySearchRepository,
+  LocalMemorySearchResult,
+  LocalMemorySource,
+} from '../database/local-memory-search-repository.ts';
 import { compileFtsQuery, FTS_QUERY_LIMITS } from '../search/fts-query.ts';
 import type { Capability, CapabilityResult } from './types.ts';
 
 const DEFAULT_LIMIT = 5;
 const MAX_ITEM_CHARS = 320;
 const MAX_REPLY_CHARS = 3_500;
+
+const SOURCE_ALIASES: Record<string, LocalMemorySource> = {
+  mensaje: 'message',
+  mensajes: 'message',
+  nota: 'note',
+  notas: 'note',
+  recordatorio: 'reminder',
+  recordatorios: 'reminder',
+  gasto: 'expense',
+  gastos: 'expense',
+};
+
+const SOURCE_LABELS: Record<LocalMemorySource, string> = {
+  message: 'mensajes',
+  note: 'notas',
+  reminder: 'recordatorios',
+  expense: 'gastos',
+};
 
 function compactText(text: string): string {
   const compact = text.replace(/\s+/g, ' ').trim();
@@ -27,7 +49,13 @@ function formatLocalTimestamp(epochSeconds: number, timeZone: string): string {
 }
 
 function formatResult(result: LocalMemorySearchResult, timeZone: string): string {
-  const source = result.source === 'note' ? `Nota #${result.sourceId}` : 'Mensaje';
+  let source: string;
+  switch (result.source) {
+    case 'note': source = `Nota #${result.sourceId}`; break;
+    case 'reminder': source = `Recordatorio #${result.sourceId}`; break;
+    case 'expense': source = `Gasto #${result.sourceId}`; break;
+    default: source = 'Mensaje';
+  }
   return `• ${source} · ${formatLocalTimestamp(result.occurredAt, timeZone)} — ${compactText(result.text)}`;
 }
 
@@ -49,11 +77,15 @@ export class MemorySearchCapability implements Capability {
   }
 
   async handle(message: IncomingMessage): Promise<CapabilityResult | undefined> {
-    const match = message.text.trim().match(/^(?:busca|buscar)\s+(.+)$/i);
-    if (!match?.[1]) return undefined;
+    const match = message.text.trim().match(
+      /^(?:busca|buscar)(?:\s+(mensajes?|notas?|recordatorios?|gastos?))?\s+(.+)$/i,
+    );
+    if (!match?.[2]) return undefined;
 
-    const query = match[1].trim();
-    if (/^observaciones\s+/i.test(query)) return undefined;
+    const rawSource = match[1]?.toLocaleLowerCase('es-PE');
+    const source = rawSource ? SOURCE_ALIASES[rawSource] : undefined;
+    const query = match[2].trim();
+    if (!source && /^observaciones\s+/i.test(query)) return undefined;
 
     const compiled = compileFtsQuery(query);
     if (!compiled) {
@@ -66,9 +98,14 @@ export class MemorySearchCapability implements Capability {
     const results = this.searchRepository.search(query, {
       limit: DEFAULT_LIMIT,
       excludeMessageId: message.id,
+      source,
     });
-    const messageCount = results.filter((result) => result.source === 'message').length;
-    const noteCount = results.filter((result) => result.source === 'note').length;
+    const counts = {
+      messages: results.filter((result) => result.source === 'message').length,
+      notes: results.filter((result) => result.source === 'note').length,
+      reminders: results.filter((result) => result.source === 'reminder').length,
+      expenses: results.filter((result) => result.source === 'expense').length,
+    };
 
     this.audit.record({
       eventType: 'memory.search',
@@ -76,16 +113,18 @@ export class MemorySearchCapability implements Capability {
       metadata: {
         tokenCount: compiled.tokenCount,
         returned: results.length,
-        messages: messageCount,
-        notes: noteCount,
+        source: source ?? 'all',
+        ...counts,
       },
     });
 
     if (results.length === 0) {
-      return { handled: true, reply: '🔎 No encontré coincidencias en tu memoria local.' };
+      const scope = source ? ` en ${SOURCE_LABELS[source]}` : '';
+      return { handled: true, reply: `🔎 No encontré coincidencias${scope} en tu memoria local.` };
     }
 
-    const lines = [`🔎 Memoria local · ${results.length} resultado${results.length === 1 ? '' : 's'}`];
+    const scope = source ? ` · ${SOURCE_LABELS[source]}` : '';
+    const lines = [`🔎 Memoria local${scope} · ${results.length} resultado${results.length === 1 ? '' : 's'}`];
     for (const result of results) {
       const line = formatResult(result, this.timeZone);
       if ([...lines, line].join('\n').length > MAX_REPLY_CHARS) break;
