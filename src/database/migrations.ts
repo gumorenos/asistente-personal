@@ -161,6 +161,25 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       CREATE INDEX IF NOT EXISTS idx_observed_chats_enabled ON observed_chats(enabled, jid);
     `,
   },
+  {
+    version: 9,
+    sql: `
+      CREATE TABLE IF NOT EXISTS observations (
+        chat_jid TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        sender_id TEXT,
+        timestamp INTEGER NOT NULL,
+        text TEXT NOT NULL CHECK (length(text) BETWEEN 1 AND 4000),
+        kind TEXT NOT NULL CHECK (kind = 'text'),
+        is_group INTEGER NOT NULL CHECK (is_group IN (0,1)),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (chat_jid, message_id),
+        FOREIGN KEY (chat_jid) REFERENCES observed_chats(jid) ON DELETE RESTRICT
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS idx_observations_chat_timestamp
+        ON observations(chat_jid, timestamp DESC);
+    `,
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): void {
