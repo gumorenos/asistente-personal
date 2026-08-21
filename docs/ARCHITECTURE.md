@@ -17,13 +17,13 @@ WhatsApp / Baileys live messages.upsert
       |                         |
       | self autorizado        | no-self + OBSERVER_ENABLED
       v                         v
-lazy audio loader          ObserverService
-(solo self/audio)               |
+retry store write          ObserverService
+(authorized self only)          |
       |                         v
-      v                   observed_chats guard
-AssistantCore                   |
-      |                         v
-      |                  SqliteObservationSink
+      +--> lazy audio       observed_chats guard
+      |    loader                |
+      v                         v
+AssistantCore             SqliteObservationSink
       |                         |
       |                         v
       |                    observations
@@ -45,7 +45,7 @@ AssistantCore                   |
              +--> AiCapability (`ia`) ------------> AiProvider
 ```
 
-Los caminos self-chat y Observer son mutuamente excluyentes. Observer nunca entra a `AssistantCore`.
+Los caminos self-chat y Observer son mutuamente excluyentes. Observer nunca entra a `AssistantCore` ni al Baileys retry store.
 
 ## MessageTransport boundary
 
@@ -145,6 +145,7 @@ Una ejecución reciente `started` actúa como lease contra concurrencia. Una lea
 `RetentionScheduler` es opcional e independiente del transporte. Purga solamente filas operativas:
 
 - normalized self-chat messages;
+- Baileys retry messages (`whatsapp_message_store`) con la misma ventana `MESSAGE_RETENTION_DAYS`;
 - outbound IDs;
 - audit;
 - briefing delivery ledger.
@@ -166,11 +167,53 @@ No recibe `MessageTransport`, `AssistantCore`, capabilities, IA, transcripción 
 
 `ObserverRetentionScheduler` aplica independientemente la ventana 1–90 días de cada chat.
 
+## Stage 2G — Baileys retry/recovery boundary
+
+Baileys consume `getMessage(key)` para retries y determinados message updates. `WhatsAppMessageStore` reemplaza el anterior callback que devolvía siempre `undefined`.
+
+```text
+outbound self sendMessage
+       |
+       +--> returned WAMessage --> whatsapp_message_store
+
+inbound messages.upsert
+       |
+       v
+routeNormalizedWhatsAppMessage
+       |
+       +--> self authorized --> whatsapp_message_store --> AssistantCore
+       |
+       +--> observer/ignored --------------------------X
+
+Baileys getMessage(key)
+       |
+       v
+whatsapp_message_store(remote_jid,message_id)
+       |
+       v
+IMessage
+```
+
+Decisiones:
+
+- migración v10 crea una tabla dedicada;
+- se persiste solo `WAMessage.message`, no todo el envelope/chat history;
+- serialización `BufferJSON` conserva `Buffer`/`Uint8Array` necesarios para contenido protobuf;
+- PK exacta `(remote_jid,message_id)` e upsert idempotente;
+- outbound se persiste inmediatamente tras `sendMessage` exitoso;
+- inbound solo después de resolver self-chat autorizado;
+- Observer/ignored retornan antes y nunca se duplican en este store;
+- `getMessage` solo hace lookup local exacto y no produce red;
+- cuando retención operacional está activa, usa `MESSAGE_RETENTION_DAYS`.
+
+La implementación cubre el requisito de store; resend/missing-message recovery real sigue siendo QA live, no una garantía derivada de tests unitarios.
+
 ## Persistence
 
 SQLite mantiene actualmente:
 
 - self-chat normalized messages y outbound IDs;
+- Baileys retry message contents (`whatsapp_message_store`);
 - notes, reminders y expenses;
 - audit;
 - Baileys auth state;
