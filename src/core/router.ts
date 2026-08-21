@@ -8,7 +8,7 @@ export function routeMessage(message: IncomingMessage): RouteResult {
   if (['ping', '/ping'].includes(text)) return { handled: true, reply: 'pong' };
 
   if (['estado', '/estado', 'status'].includes(text)) {
-    return { handled: true, reply: '✅ Asistente activo. Observer sigue deshabilitado; solo existe su allowlist administrativa.' };
+    return { handled: true, reply: '✅ Asistente activo. Usa “chats observados” para comprobar el estado y la allowlist de Observer.' };
   }
 
   if (['ayuda', '/ayuda', 'help'].includes(text)) {
@@ -32,7 +32,7 @@ export function routeMessage(message: IncomingMessage): RouteResult {
         '• ia <pregunta>',
         '• audio: transcripción solo si está habilitada',
         '',
-        'La allowlist de chats NO activa Observer ni cambia el transporte todavía.',
+        'Observer es opt-in con OBSERVER_ENABLED=true y solo persiste texto de chats allowlisted; no responde ni ejecuta acciones.',
         'El briefing automático y Calendar writes permanecen opt-in.',
         'Documentos y agentes externos siguen deshabilitados.',
       ].join('\n'),
