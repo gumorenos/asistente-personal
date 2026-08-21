@@ -11,6 +11,7 @@ Asistente personal autónomo con WhatsApp como interfaz inicial. El núcleo func
 - **Stage 2D:** ejecución Google Calendar implementada detrás de enable + aprobación + ejecución explícita; QA Google real pendiente.
 - **Stage 2E:** briefing personal y retención operacional implementados, ambos opt-in donde corresponde.
 - **Stage 2F:** Observer text-only/read-only + lectura local explícita implementados detrás de límites estrictos; QA WhatsApp real pendiente.
+- **Stage 2G:** persistent Baileys `getMessage`/retry store implementado; recovery real resend/missing-message pendiente de sesión WhatsApp QA.
 
 Ningún check manual se considera aprobado por los tests automatizados. La fuente de verdad sigue siendo [`docs/QA-PENDING.md`](docs/QA-PENDING.md).
 
@@ -26,6 +27,7 @@ Ningún check manual se considera aprobado por los tests automatizados. La fuent
 - Observer no puede responder a terceros/grupos ni crear acciones;
 - media Observer no se descarga;
 - lectura Observer requiere un comando explícito desde el self-chat, JID exacto y máximo 10 filas;
+- el retry store de Baileys solo guarda contenido protobuf de self-chat autorizado/outbound, nunca Observer/ignored;
 - full history permanece deshabilitado.
 
 ## Capacidades locales
@@ -127,7 +129,7 @@ BRIEFING_DESTINATION_JID=
 
 ## Retención operacional — Stage 2E
 
-Opt-in. Purga normalized self-chat messages, outbound IDs, audit y briefing-delivery rows. No borra notas, gastos, recordatorios, actions, allowlists ni credenciales.
+Opt-in. Purga normalized self-chat messages, el store `whatsapp_message_store`, outbound IDs, audit y briefing-delivery rows. El retry store usa la misma ventana `MESSAGE_RETENTION_DAYS`. No borra notas, gastos, recordatorios, actions, allowlists ni credenciales.
 
 ```env
 RETENTION_ENABLED=false
@@ -188,6 +190,21 @@ Observer initial:
 
 Ver contrato completo en [`docs/OBSERVER-FOUNDATION.md`](docs/OBSERVER-FOUNDATION.md).
 
+## Baileys retry/recovery — Stage 2G
+
+Baileys requiere un `getMessage(key)` respaldado por el store de la aplicación para retries y ciertos updates. La app ahora usa una tabla SQLite dedicada `whatsapp_message_store` (migración v10):
+
+- key `(remote_jid,message_id)`;
+- persiste únicamente `IMessage` serializado con `BufferJSON`;
+- guarda inmediatamente respuestas retornadas por `sendMessage`;
+- guarda inbound solo después de resolver self-chat autorizado;
+- Observer, grupos/terceros no autorizados e ignored traffic retornan antes del write;
+- `getMessage` recupera por JID + message ID exactos;
+- upsert idempotente;
+- con retención habilitada sigue `MESSAGE_RETENTION_DAYS`.
+
+Esto cierra el gap de implementación que devolvía siempre `undefined`, pero **no sustituye QA live**: resend/missing-message recovery debe validarse con una sesión WhatsApp real.
+
 ## Desarrollo local
 
 Requisitos: Node 22.18+.
@@ -223,7 +240,7 @@ CI valida tests/typecheck/audit y builds `linux/amd64` + `linux/arm64`.
 ## Próximos bloques
 
 1. cerrar QA real de Stage 1/2 sin marcarlo aprobado artificialmente;
-2. reforzar reliability de Baileys (`getMessage`/resend store) antes de depender de recovery avanzado;
+2. validar `getMessage`/resend/missing-message recovery live con una sesión WhatsApp QA;
 3. evaluar búsqueda local por keyword sobre un único JID con límites estrictos, sin IA automática;
 4. memoria/búsqueda y documentos con boundaries de privacidad propios;
 5. integraciones opcionales con OpenClaw, Claude Code, Codex u otros agentes si aportan valor.
