@@ -196,6 +196,15 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
         ON whatsapp_message_store(updated_at);
     `,
   },
+  {
+    version: 11,
+    sql: `
+      ALTER TABLE whatsapp_message_store ADD COLUMN remote_jid_alt TEXT;
+      CREATE INDEX IF NOT EXISTS idx_whatsapp_message_store_alt
+        ON whatsapp_message_store(remote_jid_alt, message_id)
+        WHERE remote_jid_alt IS NOT NULL;
+    `,
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): void {
