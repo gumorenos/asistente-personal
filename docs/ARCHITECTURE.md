@@ -4,112 +4,182 @@
 
 Construir un asistente personal cuyo primer transporte sea WhatsApp sin convertir OpenClaw, Claude Code, Codex ni ningún framework de agentes en una dependencia del producto.
 
-## Stage 2 data flow
+## Current Stage 2 data flow
 
 ```text
-WhatsApp personal
-      |
-      v
-BaileysWhatsAppTransport
-      |
-      v
-normalizer PN/LID -> self-chat guard -> canonical authorized JID
-      |
-      +-- audio autorizado --> lazy media loader
-      |
-      v
-AssistantCore
+WhatsApp / Baileys live messages.upsert
+              |
+              v
+    normalizeWhatsAppMessage
+              |
+              v
+ routeNormalizedWhatsAppMessage
+      |                         |
+      | self autorizado        | no-self + OBSERVER_ENABLED
+      v                         v
+lazy audio loader          ObserverService
+(solo self/audio)               |
+      |                         v
+      v                   observed_chats guard
+AssistantCore                   |
+      |                         v
+      |                  SqliteObservationSink
+      |                         |
+      |                         v
+      |                    observations
       |
       +--> MessageRepository ----------------------> SQLite
       |
-      +--> Capability[] (ordered)
-      |      |
-      |      +--> LocalCapabilities --------------> notes/reminders/expenses/audit
-      |      |
-      |      +--> CalendarProposalCapability -----> action_requests (pending)
-      |      |
-      |      +--> ActionApprovalCapability -------> approved / rejected only
-      |      |
-      |      +--> AudioTranscriptionCapability ---> TranscriptionProvider
-      |      |
-      |      +--> AiCapability (explicit `ia`) ---> AiProvider
-      |
-      +--> deterministic router
-      |
-      v
-same authorized self-chat only
+      +--> Capability[] ordered
+             |
+             +--> LocalCapabilities --------------> notes/reminders/expenses/audit
+             +--> BriefingCapability -------------> local state only
+             +--> ObserverAdminCapability --------> observed_chats
+             +--> CalendarProposalCapability -----> action_requests/pending
+             +--> ActionApprovalCapability -------> approved/rejected
+             +--> CalendarExecutionCapability ----> CalendarActionExecutor
+             |                                        |
+             |                                        +--> action_executions ledger
+             |                                        +--> GoogleCalendarProvider
+             +--> AudioTranscriptionCapability ---> TranscriptionProvider
+             +--> AiCapability (`ia`) ------------> AiProvider
 ```
 
-No Stage 2C component has a Google Calendar client or external-action executor.
+Los caminos self-chat y Observer son mutuamente excluyentes. Observer nunca entra a `AssistantCore`.
+
+## MessageTransport boundary
+
+`AssistantCore` conoce únicamente `MessageTransport`. Baileys sigue siendo un adapter. `sendText()` mantiene un guard independiente que solo acepta destinos incluidos en `WHATSAPP_SELF_JIDS`.
+
+El transporte Baileys tiene dos handlers conceptualmente distintos:
+
+- handler principal: recibe únicamente self-chat autorizado y puede llegar a `AssistantCore`;
+- handler Observer: opcional, recibe candidatos no-self y solo llama `ObserverService`.
+
+El handler Observer no ofrece una ruta de respuesta.
 
 ## Capability boundary
 
-`AssistantCore` procesa una lista ordenada de `Capability`. Las capacidades locales siguen primero. IA, transcripción y futuras integraciones externas son adapters separados. Una capability puede producir una respuesta o una propuesta local, pero no recibe implícitamente permiso para enviar mensajes o ejecutar otras capabilities.
+`AssistantCore` procesa una lista ordenada de `Capability`. Una capability puede devolver texto al self-chat o manipular el estado que explícitamente posee, pero no obtiene permiso implícito para ejecutar otra capability.
+
+Esto evita, por ejemplo:
+
+- que una respuesta IA se convierta en comando;
+- que una transcripción cree una nota/acción automáticamente;
+- que aprobar una propuesta ejecute Calendar por sí solo;
+- que contenido Observer llegue a capabilities.
 
 ## Stage 2A — AI provider boundary
 
-`AiProvider` abstrae el proveedor de texto. La implementación inicial usa `/chat/completions` mediante `fetch` nativo.
+`AiProvider` abstrae el proveedor de texto mediante `/chat/completions` y `fetch` nativo.
 
 - `AI_ENABLED=false` por defecto;
-- solo `ia`/`ai` explícito invoca al proveedor;
-- no hay fallback automático;
-- solo salen system prompt fijo + prompt actual;
-- output solo texto, sin tool/function calling;
+- solo `ia`/`ai` explícito;
+- system prompt fijo + prompt actual, sin historial automático;
+- sin tools/function calling;
 - HTTPS remoto, timeout y límites;
 - audit sin prompt/respuesta.
 
 ## Stage 2B — transcription boundary
 
-`TranscriptionProvider` abstrae la transcripción. La implementación inicial usa `/audio/transcriptions` con `FormData` y `fetch` nativo.
+`TranscriptionProvider` usa `/audio/transcriptions` con `FormData`/`fetch`.
 
-El transporte adjunta `loadMedia()` únicamente **después** de `resolveAllowedSelfChat`:
+El lazy media loader se adjunta solamente al camino self-chat autorizado:
 
-1. si transcripción está deshabilitada, no descarga;
-2. `fileLength` declarado se compara con el límite antes de descargar;
-3. después de descargar se verifica nuevamente el tamaño real;
-4. el buffer es efímero en memoria;
-5. el transcript vuelve como texto terminal y no se reinyecta al router.
+1. transcripción apagada => no se descarga;
+2. `fileLength` declarado se valida antes del download;
+3. bytes reales se validan antes del upload;
+4. buffer efímero en memoria;
+5. transcript terminal, sin reinyectarse al router.
+
+Observer nunca recibe este loader.
 
 ## Stage 2C — proposal / approval boundary
 
-Antes de cualquier Calendar write se separan tres conceptos:
-
 ```text
-intención del usuario
-      |
-      v
-CalendarProposalCapability
-      |
-      v
-action_requests.status = pending
-      |
-      +--> rechazar -> rejected
-      |
-      +--> aprobar  -> approved
-                        |
-                        X  NO executor todavía
+agenda ...
+   |
+   v
+action_request pending
+   |
+   +--> reject --> rejected
+   |
+   +--> approve -> approved
 ```
 
-`CalendarProposalCapability` reutiliza el parser determinista/timezone-aware de recordatorios para convertir `agenda ...` en un payload local `calendar.create_event` con `title`, `startAt`, `durationMinutes` y `timeZone`.
+`CalendarProposalCapability` reutiliza el parser determinista/timezone-aware para producir `calendar.create_event` con `title`, `startAt`, `durationMinutes` y `timeZone`.
 
-`ActionApprovalCapability` solo puede mover una acción `pending` vigente a `approved` o `rejected`. Una acción Calendar expira al llegar su `startAt`, por lo que deja de aparecer y no puede aprobarse después.
+Aprobar sigue siendo solo consentimiento local; no llama al proveedor.
 
-La aprobación **no equivale a ejecución**. Un futuro Calendar executor tendrá que:
+## Stage 2D — Calendar execution boundary
 
-1. aceptar únicamente `action_type` soportados y estado `approved`;
-2. validar de nuevo schema, fecha, timezone y vigencia justo antes del write;
-3. reservar/registrar una idempotency key antes de llamar al proveedor;
-4. persistir resultado y external event id sin duplicar eventos ante retry;
-5. no ejecutar si OAuth/provider no están explícitamente habilitados;
-6. auditar el resultado sin copiar secretos.
+Un write real requiere otra instrucción explícita: `ejecuta acción #N` y `CALENDAR_ENABLED=true`.
 
-## Self-chat safety boundary
+```text
+approved action
+      |
+      v
+CalendarExecutionCapability
+      |
+      v
+CalendarActionExecutor
+      |
+      +--> revalidate payload/time
+      +--> reserve/reuse idempotency key
+      +--> action_executions lease/ledger
+      |
+      v
+GoogleCalendarProvider
+      |
+      +--> OAuth access-token refresh
+      +--> deterministic Google event ID
+      +--> 409 duplicate recovery via GET
+```
 
-Se mantienen las garantías Stage 1: `fromMe=true`, no grupos, allowlist PN/LID, canonicalización al JID autorizado y outbound guard independiente. Stage 2A/2B/2C no amplían qué chats se aceptan.
+Una ejecución reciente `started` actúa como lease contra concurrencia. Una lease huérfana puede recuperarse después de su ventana usando la misma idempotency key.
+
+## Stage 2E — briefing / retention
+
+`BriefingService` compone únicamente estado local determinista. `BriefingScheduler` puede enviarlo una vez por fecha local a un `BRIEFING_DESTINATION_JID` que debe pertenecer a `WHATSAPP_SELF_JIDS`.
+
+`RetentionScheduler` es opcional e independiente del transporte. Purga solamente filas operativas:
+
+- normalized self-chat messages;
+- outbound IDs;
+- audit;
+- briefing delivery ledger.
+
+No toca dominio ni credenciales.
+
+## Stage 2F — Observer read-only boundary
+
+Observer requiere cuatro gates acumulativos:
+
+1. WhatsApp habilitado;
+2. self-JID administrativo explícito;
+3. `OBSERVER_ENABLED=true`;
+4. JID concreto habilitado en `observed_chats`.
+
+`ObserverService` solo acepta texto allowlisted. `SqliteObservationSink` vuelve a validar texto y usa la tabla dedicada `observations`, con PK `(chat_jid,message_id)`.
+
+No recibe `MessageTransport`, `AssistantCore`, capabilities, IA, transcripción ni Calendar. Por tanto no tiene una ruta para responder o ejecutar acciones.
+
+`ObserverRetentionScheduler` aplica independientemente la ventana 1–90 días de cada chat.
 
 ## Persistence
 
-SQLite mantiene mensajes aceptados, notas, recordatorios, gastos, audit, auth state y `action_requests`. Stage 2 no persiste audio ni historial remoto de IA/transcripción. El payload de una propuesta sí vive localmente en SQLite porque un executor futuro necesitará una representación estable de la acción aprobada.
+SQLite mantiene actualmente:
+
+- self-chat normalized messages y outbound IDs;
+- notes, reminders y expenses;
+- audit;
+- Baileys auth state;
+- action requests y action execution ledger;
+- briefing delivery ledger;
+- observer allowlist;
+- text-only observations.
+
+Audio/transcription buffers no se persisten como archivos por la app. Prompts/respuestas IA no se almacenan en audit.
 
 ## Release gates
 
@@ -118,16 +188,20 @@ npm ci
   -> typecheck
   -> tests
   -> runtime dependency audit
-  -> Docker amd64
-  -> Docker arm64
+  -> Docker linux/amd64
+  -> Docker linux/arm64
 ```
 
-## Out of scope actual
+Los gates automatizados no sustituyen el QA real registrado en `docs/QA-PENDING.md`.
+
+## Out of scope / blocked
 
 - tool/function calling;
 - fallback automático a IA;
-- ejecución automática de transcript;
-- Google Calendar OAuth/provider/executor y writes;
-- Observer/non-self chats;
-- documentos;
-- OpenClaw/Claude Code/Codex.
+- ejecución automática de transcripts;
+- respuestas automáticas a terceros/grupos;
+- IA automática sobre contenido Observer;
+- ingestión de media Observer;
+- full-history Observer;
+- documentos/RAG;
+- OpenClaw/Claude Code/Codex como dependencias del core.
