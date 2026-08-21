@@ -75,8 +75,9 @@
 3. El destino debe coincidir exactamente con un JID de `WHATSAPP_SELF_JIDS`.
 4. Delivery ledger evita más de un envío por fecha local.
 5. `RETENTION_ENABLED=false` por defecto.
-6. La retención operacional solo purga normalized self-chat messages, outbound IDs, audit y briefing deliveries.
-7. No purga notas, gastos, recordatorios, action requests, allowlists ni credenciales.
+6. La retención operacional purga normalized self-chat messages, `whatsapp_message_store`, outbound IDs, audit y briefing deliveries.
+7. El retry store usa `MESSAGE_RETENTION_DAYS` cuando retención está habilitada.
+8. No purga notas, gastos, recordatorios, action requests, allowlists ni credenciales.
 
 ## Stage 2F — Observer read-only rules
 
@@ -99,7 +100,21 @@ Observer introduce lectura limitada de chats de terceros/grupos, pero **no intro
 15. Ningún mensaje observado puede crear nota, gasto, reminder, proposal, approval o Calendar write.
 16. Ningún mensaje observado puede invocar IA/transcripción automáticamente.
 17. Ningún componente Observer expone o recibe `sendText()`.
-18. No hay respuestas automáticas a terceros/grupos dentro de este stage.
+18. Observer/ignored traffic retorna antes del `whatsapp_message_store`, evitando una segunda copia raw del contenido observado.
+19. No hay respuestas automáticas a terceros/grupos dentro de este stage.
+
+## Stage 2G — Baileys retry/recovery rules
+
+1. `getMessage` usa un store SQLite persistente en vez de devolver siempre `undefined`.
+2. La tabla v10 guarda únicamente `WAMessage.message`, no todo el envelope ni historial completo.
+3. La key es exacta `(remote_jid,message_id)` y el upsert es idempotente.
+4. `BufferJSON` preserva datos binarios requeridos por estructuras Baileys sin convertirlos en logs.
+5. Respuestas outbound se guardan solo después de un `sendMessage` exitoso y siguen protegidas por el outbound self-JID guard.
+6. Inbound se guarda únicamente después de que el self-chat guard autorizó el mensaje.
+7. Observer, grupos/terceros no autorizados e ignored traffic nunca se guardan en esta tabla.
+8. `getMessage` es lookup local y no amplía permisos de red, reply ni capabilities.
+9. Con `RETENTION_ENABLED=true`, el store se purga usando `MESSAGE_RETENTION_DAYS`.
+10. Resend/missing-message recovery no se considera validado hasta QA con una sesión WhatsApp real.
 
 ## Important limitations
 
@@ -113,14 +128,14 @@ Observer puede almacenar contenido de terceros cuando está activado y el chat f
 
 Tratar como secretos:
 
-- `data/assistant.db`, WAL/SHM y backups;
+- `data/assistant.db`, WAL/SHM y backups; incluye auth, self-chat retry contents y, si Observer está activo, observations;
 - `.env`;
 - pairing codes;
 - `AI_API_KEY`;
 - `TRANSCRIPTION_API_KEY`;
 - `GOOGLE_CALENDAR_CLIENT_SECRET`;
 - `GOOGLE_CALENDAR_REFRESH_TOKEN`;
-- cualquier backup que contenga `observations`.
+- cualquier backup que contenga `observations` o `whatsapp_message_store`.
 
 ## Permission levels
 
