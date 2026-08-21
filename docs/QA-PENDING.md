@@ -31,15 +31,16 @@ Evidencia obtenida en ese run:
 
 No se marcaron como PASS los checks que requieren WhatsApp/Google/proveedor externo/24 h solo por haber pasado pruebas locales.
 
-## Automated development gates — current Stage 2 head
+## Automated development gates — current Stage 3A head
 
 - [x] `npm ci` reproducible.
 - [x] TypeScript strict en Node 22.18.
-- [x] 134/134 tests después de incorporar el retry store PN/LID-aware.
+- [x] 143/143 tests después de incorporar Stage 3A FTS5.
 - [x] Runtime dependency audit: 0 vulnerabilidades high+.
-- [x] Docker `linux/amd64`.
-- [x] Docker `linux/arm64`.
-- [x] Migraciones centrales 1→11 sobre DB nueva cubiertas automáticamente.
+- [x] Migraciones centrales 1→12 sobre DB nueva cubiertas automáticamente.
+- [x] SQLite FTS5 disponible y funcional en CI Node 22.18.
+- [ ] Docker `linux/amd64` del HEAD Stage 3A — CI en ejecución al registrar esta revisión.
+- [ ] Docker `linux/arm64` del HEAD Stage 3A — CI en ejecución al registrar esta revisión.
 
 Estos gates no sustituyen el QA manual detallado abajo.
 
@@ -225,10 +226,10 @@ Evidencia local OpenClaw 2026-08-21: allowlist, PN/LID simulado, dedupe, media s
 - [ ] SIGTERM/SIGINT cierra todos los schedulers, transport, health y SQLite.
 - [ ] Recuperación WAL/SHM después de kill no limpio.
 - [ ] Permisos reales de directorio/DB en RPi.
-- [ ] Backup/restore y row counts/migrations 1→11 desde DB nueva y sobre DB existente.
+- [ ] Backup/restore y row counts/migrations 1→12 desde DB nueva y sobre DB existente.
 - [ ] Consumo CPU/RAM estable durante al menos 24h.
 
-Evidencia OpenClaw 2026-08-21 sobre `271402b`: health/readiness local PASS con transport disabled, loopback PASS, SIGTERM PASS, WAL activo, migraciones 1–9 de ese commit y backup/restore básico PASS. Repetir migraciones incluyendo v10/v11 y deployment final.
+Evidencia OpenClaw 2026-08-21 sobre `271402b`: health/readiness local PASS con transport disabled, loopback PASS, SIGTERM PASS, WAL activo, migraciones 1–9 de ese commit y backup/restore básico PASS. Repetir migraciones incluyendo v10/v11/v12 y deployment final.
 
 ## Stage 2G — Baileys retry/recovery
 
@@ -256,6 +257,40 @@ Evidencia OpenClaw 2026-08-21 sobre `271402b`: health/readiness local PASS con t
 - [ ] Validar versión Baileys fijada contra comportamiento real actual.
 - [ ] Revisar upgrades separadamente; no auto-upgrade.
 
+## Stage 3A — local memory + exact-JID Observer search
+
+### Automated development checks
+
+- [x] Migración v12 crea dos índices FTS5 separados: `self_memory_fts` y `observation_fts`.
+- [x] `self_memory_fts` contiene solo mensajes self normalizados y notas; nunca `observations`.
+- [x] `observation_fts` se alimenta solo desde `observations`.
+- [x] Backfill de datos existentes + triggers INSERT/UPDATE/DELETE mantienen índices sincronizados.
+- [x] Delete por retención elimina también la entrada FTS correspondiente.
+- [x] Query compiler limita 200 caracteres, 8 tokens y no pasa sintaxis FTS cruda.
+- [x] Prefijos y matching Unicode/diacríticos funcionan en CI.
+- [x] `busca <texto>` excluye el propio `message_id` del comando actual.
+- [x] Búsqueda personal no devuelve contenido Observer aun con la misma keyword.
+- [x] `busca observaciones <jid> <texto>` exige un JID administrativamente conocido.
+- [x] Observer search añade filtro SQL exacto `chat_jid = ?`; no existe búsqueda global/cross-chat.
+- [x] Chat Observer deshabilitado solo permite buscar filas retenidas hasta purge.
+- [x] Audit de búsqueda personal no guarda query/resultados; Observer usa hash de JID + counts/tokenCount.
+- [x] No hay IA, embeddings, RAG, media download ni providers externos en Stage 3A.
+
+### Manual / deployment QA
+
+- [ ] Ejecutar migración v12 sobre una copia de una DB real existente con datos previos y confirmar backfill correcto.
+- [ ] Confirmar que `busca filtro` desde WhatsApp real encuentra un mensaje/nota anterior sin devolver el comando actual.
+- [ ] Confirmar búsqueda con mayúsculas/tildes/prefijos reales (`reun`, `reunión`, etc.).
+- [ ] Confirmar que una keyword presente solo en Observer produce cero resultados con `busca <keyword>`.
+- [ ] Con dos chats Observer que contienen la misma keyword, `busca observaciones <jidA> <keyword>` devuelve exclusivamente JID A.
+- [ ] JID no registrado/allowlisted administrativamente se rechaza.
+- [ ] Chat Observer deshabilitado mantiene búsqueda solo de filas retenidas y deja de devolverlas tras purge.
+- [ ] Confirmar que audit/logs reales no contienen query, resultados ni JID crudo en eventos `observer.search`.
+- [ ] Medir tamaño adicional del DB/FTS y latencia con volumen real de mensajes antes de ampliar retención.
+- [ ] Backup/restore de DB con índices FTS y validación de que búsquedas siguen funcionando tras restore.
+
+Estos checks pueden ejecutarse con OpenClaw más adelante junto con el QA WhatsApp/RPi acumulado; **no bloquean continuar el desarrollo de Stage 3 mientras los gates automatizados permanezcan verdes**.
+
 ## Privacy/security decisions still pending
 
 - [x] Boundary propuesta + aprobación antes de Calendar write.
@@ -264,6 +299,7 @@ Evidencia OpenClaw 2026-08-21 sobre `271402b`: health/readiness local PASS con t
 - [x] Retention/purge operacional y per-chat Observer.
 - [x] Raw retry store limitado por código a self-chat autorizado/outbound y excluido de Observer.
 - [x] Alias PN/LID del retry store no amplía el lookup sin coincidencia del mismo `message_id`.
+- [x] Índices FTS self/Observer físicamente separados y Observer search exact-JID only.
 - [ ] Decidir cifrado de SQLite y backups en el dispositivo final.
 - [ ] Definir política de consentimiento/retención para chats observados antes de uso con terceros.
 - [ ] Validar mediante QA real que third-party outbound permanece imposible.
