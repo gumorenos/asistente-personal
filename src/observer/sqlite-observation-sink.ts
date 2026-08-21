@@ -2,23 +2,6 @@ import type { AppDatabase } from '../database/db.ts';
 import { normalizeObservedJid } from '../database/observed-chat-repository.ts';
 import type { ObservationRecord, ObservationSink } from './types.ts';
 
-export const OBSERVATION_SCHEMA_SQL = `
-  CREATE TABLE IF NOT EXISTS observations (
-    chat_jid TEXT NOT NULL,
-    message_id TEXT NOT NULL,
-    sender_id TEXT,
-    timestamp INTEGER NOT NULL,
-    text TEXT NOT NULL CHECK (length(text) BETWEEN 1 AND 4000),
-    kind TEXT NOT NULL CHECK (kind = 'text'),
-    is_group INTEGER NOT NULL CHECK (is_group IN (0,1)),
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (chat_jid, message_id)
-  ) STRICT;
-
-  CREATE INDEX IF NOT EXISTS idx_observations_chat_timestamp
-    ON observations(chat_jid, timestamp DESC);
-`;
-
 export interface StoredObservation extends ObservationRecord {
   createdAt: string;
 }
@@ -32,14 +15,6 @@ interface RawObservationRow {
   kind: 'text';
   is_group: number;
   created_at: string;
-}
-
-/**
- * Feature-local schema installer used by tests until Observer activation gets
- * an explicit central migration. Runtime does not instantiate this sink yet.
- */
-export function installObservationSchema(database: AppDatabase): void {
-  database.native.exec(OBSERVATION_SCHEMA_SQL);
 }
 
 export class SqliteObservationSink implements ObservationSink {
