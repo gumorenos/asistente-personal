@@ -10,7 +10,7 @@ Asistente personal autónomo con WhatsApp como interfaz inicial. El núcleo func
 - **Stage 2C:** propuestas Calendar + aprobación/rechazo local implementadas.
 - **Stage 2D:** ejecución Google Calendar implementada detrás de enable + aprobación + ejecución explícita; QA Google real pendiente.
 - **Stage 2E:** briefing personal y retención operacional implementados, ambos opt-in donde corresponde.
-- **Stage 2F:** Observer text-only/read-only implementado detrás de `OBSERVER_ENABLED=false`; QA WhatsApp real pendiente.
+- **Stage 2F:** Observer text-only/read-only + lectura local explícita implementados detrás de límites estrictos; QA WhatsApp real pendiente.
 
 Ningún check manual se considera aprobado por los tests automatizados. La fuente de verdad sigue siendo [`docs/QA-PENDING.md`](docs/QA-PENDING.md).
 
@@ -25,6 +25,7 @@ Ningún check manual se considera aprobado por los tests automatizados. La fuent
 - Observer no recibe `AssistantCore`, `MessageTransport`, capabilities ni providers externos;
 - Observer no puede responder a terceros/grupos ni crear acciones;
 - media Observer no se descarga;
+- lectura Observer requiere un comando explícito desde el self-chat, JID exacto y máximo 10 filas;
 - full history permanece deshabilitado.
 
 ## Capacidades locales
@@ -145,14 +146,27 @@ Observer está apagado por defecto. Para capturar texto deben cumplirse todos es
 3. `OBSERVER_ENABLED=true`;
 4. el JID concreto está habilitado en `observed_chats`.
 
-Administración desde el self-chat:
+Administración y lectura desde el self-chat:
 
 ```text
 observa chat 519XXXXXXXX@s.whatsapp.net como Trabajo
 observa chat 120363XXXXXXXX@g.us como Familia
 chats observados
+observaciones 519XXXXXXXX@s.whatsapp.net
+observaciones 120363XXXXXXXX@g.us 10
 deja de observar 519XXXXXXXX@s.whatsapp.net
 ```
+
+`observaciones <jid> [1-10]`:
+
+- exige JID exacto conocido administrativamente;
+- default 5 filas, máximo 10;
+- no busca ni resume otros chats;
+- compacta/trunca cada fila y limita la respuesta total a 3.500 caracteres;
+- funciona únicamente por petición explícita del self-chat;
+- no usa IA;
+- audit guarda hash del JID + counts, no contenido/JID/label crudos;
+- puede consultar filas retenidas de un chat ya deshabilitado hasta que la retención las elimine.
 
 Configuración:
 
@@ -210,7 +224,7 @@ CI valida tests/typecheck/audit y builds `linux/amd64` + `linux/arm64`.
 
 1. cerrar QA real de Stage 1/2 sin marcarlo aprobado artificialmente;
 2. reforzar reliability de Baileys (`getMessage`/resend store) antes de depender de recovery avanzado;
-3. añadir lectura/búsqueda local controlada sobre observaciones, sin IA automática;
+3. evaluar búsqueda local por keyword sobre un único JID con límites estrictos, sin IA automática;
 4. memoria/búsqueda y documentos con boundaries de privacidad propios;
 5. integraciones opcionales con OpenClaw, Claude Code, Codex u otros agentes si aportan valor.
 
