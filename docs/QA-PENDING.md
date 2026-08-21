@@ -150,6 +150,8 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 - [x] Deshabilitar un chat detiene writes nuevos inmediatamente.
 - [x] Purge propio de Observer usa `retention_days` de cada chat y no depende de `RETENTION_ENABLED`.
 - [x] Observer no tiene ruta de `sendText`, IA, transcripción, Calendar ni creación de acciones.
+- [x] `observaciones <jid> [1-10]` es una lectura self-chat explícita, exacta por JID, sin IA y con salida acotada.
+- [x] Lecturas Observer se auditan con hash del JID + counts, nunca con JID/texto/label crudos.
 
 ### Manual / real WhatsApp QA
 
@@ -162,10 +164,14 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 - [ ] Mensaje observado jamás produce reply, read-receipt adicional intencional, nota, gasto, recordatorio, acción, IA, transcripción ni Calendar traffic.
 - [ ] Audio/imagen/documento/video observado no descarga media y no crea fila de observación.
 - [ ] Duplicado/resend del mismo message ID crea una sola fila.
+- [ ] `observaciones <jid>` desde el self-chat devuelve solo filas del JID exacto y nunca mezcla otro chat.
+- [ ] `observaciones <jid> 10` respeta límite, truncamiento y timezone; `11` se rechaza.
+- [ ] Tras `deja de observar <jid>`, no se capturan filas nuevas pero las retenidas siguen consultables hasta su purge y se marcan como chat deshabilitado.
 - [ ] `deja de observar <jid>` detiene nuevas filas sin restart.
 - [ ] Restart/reboot conserva allowlist y observaciones existentes.
 - [ ] Retención real elimina cada chat según su ventana; un chat de 1 día no afecta uno de 30 días.
 - [ ] Logs normales de Observer no contienen texto, JID, label ni contenido observado.
+- [ ] Audit de lectura real no contiene texto, JID crudo ni label.
 - [ ] Medir CPU/RAM/crecimiento DB con Observer activo durante al menos 24h.
 - [ ] Revisar consentimiento, necesidad y minimización de datos antes de observar chats que involucren a terceros.
 
