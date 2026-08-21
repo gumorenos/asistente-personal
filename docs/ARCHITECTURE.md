@@ -188,7 +188,7 @@ routeNormalizedWhatsAppMessage
 Baileys getMessage(key)
        |
        v
-whatsapp_message_store(remote_jid,message_id)
+whatsapp_message_store(remote_jid | remote_jid_alt, message_id)
        |
        v
 IMessage
@@ -196,24 +196,27 @@ IMessage
 
 Decisiones:
 
-- migración v10 crea una tabla dedicada;
+- migración v10 crea la tabla dedicada;
+- migración v11 añade `remote_jid_alt` e índice PN/LID;
 - se persiste solo `WAMessage.message`, no todo el envelope/chat history;
 - serialización `BufferJSON` conserva `Buffer`/`Uint8Array` necesarios para contenido protobuf;
-- PK exacta `(remote_jid,message_id)` e upsert idempotente;
+- PK `(remote_jid,message_id)`, alias alternativo y upsert idempotente;
+- el lookup siempre exige el mismo `message_id` y una coincidencia primary/alt JID;
+- un mismo mensaje puede recuperarse por PN o LID, incluso si Baileys invierte primary/alt en un resend posterior;
 - outbound se persiste inmediatamente tras `sendMessage` exitoso;
 - inbound solo después de resolver self-chat autorizado;
 - Observer/ignored retornan antes y nunca se duplican en este store;
-- `getMessage` solo hace lookup local exacto y no produce red;
+- `getMessage` solo hace lookup local y no produce red;
 - cuando retención operacional está activa, usa `MESSAGE_RETENTION_DAYS`.
 
-La implementación cubre el requisito de store; resend/missing-message recovery real sigue siendo QA live, no una garantía derivada de tests unitarios.
+La implementación cubre el requisito de store y alias; resend/missing-message recovery con PN/LID reales sigue siendo QA live, no una garantía derivada de tests unitarios.
 
 ## Persistence
 
 SQLite mantiene actualmente:
 
 - self-chat normalized messages y outbound IDs;
-- Baileys retry message contents (`whatsapp_message_store`);
+- Baileys retry message contents (`whatsapp_message_store`) con alias PN/LID;
 - notes, reminders y expenses;
 - audit;
 - Baileys auth state;
