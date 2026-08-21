@@ -10,8 +10,8 @@ import type { IncomingMessage, SendTextResult } from '../../core/types.ts';
 import type { AppDatabase } from '../../database/db.ts';
 import type { MessageRepository } from '../../database/message-repository.ts';
 import type { IncomingMessageHandler, MessageTransport } from '../types.ts';
+import { routeNormalizedWhatsAppMessage } from './inbound-routing.ts';
 import { normalizeWhatsAppMessage } from './normalize-message.ts';
-import { resolveAllowedSelfChat } from './self-chat-guard.ts';
 import { useSqliteAuthState } from './sqlite-auth-state.ts';
 
 export interface WhatsAppTransportConfig {
@@ -57,11 +57,18 @@ export class BaileysWhatsAppTransport implements MessageTransport {
   private readonly config: WhatsAppTransportConfig;
   private readonly database: AppDatabase;
   private readonly messages: MessageRepository;
+  private readonly observerHandler?: IncomingMessageHandler;
 
-  constructor(config: WhatsAppTransportConfig, database: AppDatabase, messages: MessageRepository) {
+  constructor(
+    config: WhatsAppTransportConfig,
+    database: AppDatabase,
+    messages: MessageRepository,
+    observerHandler?: IncomingMessageHandler,
+  ) {
     this.config = config;
     this.database = database;
     this.messages = messages;
+    this.observerHandler = observerHandler;
     this.selfJids = new Set(config.selfJids);
   }
 
@@ -139,7 +146,11 @@ export class BaileysWhatsAppTransport implements MessageTransport {
       if (connection === 'open') {
         this.state = this.selfJids.size > 0 ? 'open' : 'needs_self_jid';
         this.pairingRequested = false;
-        logger.info('WhatsApp connected', { automaticReplies: this.selfJids.size > 0, ownSocketId: socket.user?.id });
+        logger.info('WhatsApp connected', {
+          automaticReplies: this.selfJids.size > 0,
+          observerReadOnly: Boolean(this.observerHandler),
+          ownSocketId: socket.user?.id,
+        });
         if (this.selfJids.size === 0) {
           logger.warn('WHATSAPP_SELF_JIDS is empty; all inbound processing and outbound messages remain disabled', {
             configuredPhoneJid: configuredPhoneJid(this.config.phoneNumber),
@@ -172,10 +183,19 @@ export class BaileysWhatsAppTransport implements MessageTransport {
     const normalized = normalizeWhatsAppMessage(raw);
     if (!normalized || this.messages.isAssistantOutbound(normalized.id)) return;
 
-    const authorized = resolveAllowedSelfChat(normalized, this.selfJids);
-    if (!authorized) return;
-    const message = this.attachLazyAudioLoader(authorized, raw, socket, baileysLogger);
+    const routed = routeNormalizedWhatsAppMessage(normalized, this.selfJids, Boolean(this.observerHandler));
+    if (routed.route === 'ignored') return;
 
+    if (routed.route === 'observer_candidate') {
+      try {
+        await this.observerHandler?.(routed.message);
+      } catch (error) {
+        logger.warn('Observer processing failed', { error: error instanceof Error ? error.name : 'unknown' });
+      }
+      return;
+    }
+
+    const message = this.attachLazyAudioLoader(routed.message, raw, socket, baileysLogger);
     if (this.config.logMessageContent) {
       logger.debug('Accepted self-chat message', { messageId: message.id, text: message.text });
     } else {
