@@ -59,14 +59,8 @@ test('parses future reminders in configured timezone', () => {
 });
 
 test('invalid or past explicit schedule is not silently stored as an undated reminder', () => {
-  assert.equal(
-    parseReminder('recuérdame hoy a las 25 pagar Visa', fixedNow, 'America/Lima')?.invalidSchedule,
-    true,
-  );
-  assert.equal(
-    parseReminder('recuérdame 2026-02-31 10:00 imposible', fixedNow, 'America/Lima')?.invalidSchedule,
-    true,
-  );
+  assert.equal(parseReminder('recuérdame hoy a las 25 pagar Visa', fixedNow, 'America/Lima')?.invalidSchedule, true);
+  assert.equal(parseReminder('recuérdame 2026-02-31 10:00 imposible', fixedNow, 'America/Lima')?.invalidSchedule, true);
 });
 
 test('local capabilities persist note, expense and reminder and audit mutations', async () => {
@@ -77,11 +71,7 @@ test('local capabilities persist note, expense and reminder and audit mutations'
   assert.equal(notes.listActive().length, 1);
   assert.equal(expenses.listRecent()[0]?.category, 'transporte');
   assert.equal(reminders.listPending()[0]?.dueAt, '2026-08-19T15:00:00.000Z');
-  assert.deepEqual(audit.listRecent().map((row) => row.eventType), [
-    'reminder.created',
-    'expense.created',
-    'note.created',
-  ]);
+  assert.deepEqual(audit.listRecent().map((row) => row.eventType), ['reminder.created', 'expense.created', 'note.created']);
   db.close();
 });
 
@@ -109,8 +99,8 @@ test('expense period listing and monthly summary use local timezone boundaries',
   expenses.create({ amountMinor: 1000, currency: 'PEN', category: 'comida', occurredAt: '2026-08-18T04:30:00.000Z' });
   expenses.create({ amountMinor: 2000, currency: 'PEN', category: 'transporte', occurredAt: '2026-08-19T02:30:00.000Z' });
   const today = (await capabilities.handle(message('gastos hoy')))?.reply ?? '';
-  assert.doesNotMatch(today, /10\.00/); // 23:30 del 17 de agosto en Lima
-  assert.match(today, /20\.00/); // 21:30 del 18 de agosto en Lima
+  assert.doesNotMatch(today, /10\.00/);
+  assert.match(today, /20\.00/);
   const summary = (await capabilities.handle(message('resumen gastos mes')))?.reply ?? '';
   assert.match(summary, /Total: S\/ 30\.00 en 2 gastos/);
   assert.match(summary, /comida: S\/ 10\.00/);
@@ -129,10 +119,16 @@ test('list commands return only active local state', async () => {
   db.close();
 });
 
-test('oversized command is rejected without persistence', async () => {
+test('oversized local command is rejected without persistence', async () => {
   const { db, notes, capabilities } = setup();
   const reply = (await capabilities.handle(message(`anota ${'x'.repeat(2_100)}`)))?.reply ?? '';
   assert.match(reply, /demasiado largo/);
   assert.equal(notes.listActive().length, 0);
+  db.close();
+});
+
+test('local command bound does not intercept an explicit AI request owned by the next capability', async () => {
+  const { db, capabilities } = setup();
+  assert.equal(await capabilities.handle(message(`ia ${'x'.repeat(2_100)}`)), undefined);
   db.close();
 });

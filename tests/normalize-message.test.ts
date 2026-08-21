@@ -4,11 +4,7 @@ import { normalizeWhatsAppMessage } from '../src/transports/whatsapp/normalize-m
 
 test('normalizes a plain self-chat text message', () => {
   const normalized = normalizeWhatsAppMessage({
-    key: {
-      id: 'ABC',
-      remoteJid: '123@s.whatsapp.net',
-      fromMe: true,
-    },
+    key: { id: 'ABC', remoteJid: '123@s.whatsapp.net', fromMe: true },
     messageTimestamp: 1_700_000_000,
     message: { conversation: 'ping' },
   } as never);
@@ -23,6 +19,7 @@ test('normalizes a plain self-chat text message', () => {
     kind: 'text',
     fromMe: true,
     isGroup: false,
+    mediaSizeBytes: undefined,
   });
 });
 
@@ -42,4 +39,16 @@ test('keeps LID alternate jid and detects groups', () => {
   assert.equal(normalized?.chatIdAlt, '51999999999@s.whatsapp.net');
   assert.equal(normalized?.senderId, '999@lid');
   assert.equal(normalized?.isGroup, true);
+});
+
+test('normalizes declared audio size for pre-download limits', () => {
+  const normalized = normalizeWhatsAppMessage({
+    key: { id: 'AUDIO', remoteJid: '51999999999@s.whatsapp.net', fromMe: true },
+    messageTimestamp: 1_700_000_002,
+    message: { audioMessage: { mimetype: 'audio/ogg; codecs=opus', fileLength: 12_345 } },
+  } as never);
+
+  assert.equal(normalized?.kind, 'audio');
+  assert.equal(normalized?.mediaSizeBytes, 12_345);
+  assert.equal(normalized?.text, '');
 });

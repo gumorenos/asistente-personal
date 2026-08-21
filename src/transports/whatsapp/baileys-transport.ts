@@ -1,16 +1,18 @@
 import makeWASocket, {
   Browsers,
   DisconnectReason,
+  downloadMediaMessage,
   type WASocket,
   type WAMessage,
 } from 'baileys';
 import { logger } from '../../core/logger.ts';
-import type { SendTextResult } from '../../core/types.ts';
+import type { IncomingMessage, SendTextResult } from '../../core/types.ts';
 import type { AppDatabase } from '../../database/db.ts';
 import type { MessageRepository } from '../../database/message-repository.ts';
+import { WhatsAppMessageStore } from '../../database/whatsapp-message-store.ts';
 import type { IncomingMessageHandler, MessageTransport } from '../types.ts';
+import { routeNormalizedWhatsAppMessage } from './inbound-routing.ts';
 import { normalizeWhatsAppMessage } from './normalize-message.ts';
-import { resolveAllowedSelfChat } from './self-chat-guard.ts';
 import { useSqliteAuthState } from './sqlite-auth-state.ts';
 
 export interface WhatsAppTransportConfig {
@@ -56,15 +58,20 @@ export class BaileysWhatsAppTransport implements MessageTransport {
   private readonly config: WhatsAppTransportConfig;
   private readonly database: AppDatabase;
   private readonly messages: MessageRepository;
+  private readonly retryMessages: WhatsAppMessageStore;
+  private readonly observerHandler?: IncomingMessageHandler;
 
   constructor(
     config: WhatsAppTransportConfig,
     database: AppDatabase,
     messages: MessageRepository,
+    observerHandler?: IncomingMessageHandler,
   ) {
     this.config = config;
     this.database = database;
     this.messages = messages;
+    this.retryMessages = new WhatsAppMessageStore(database);
+    this.observerHandler = observerHandler;
     this.selfJids = new Set(config.selfJids);
   }
 
@@ -99,11 +106,10 @@ export class BaileysWhatsAppTransport implements MessageTransport {
     if (!this.selfJids.has(destination)) {
       throw new Error(`Refusing to send outside configured self-chat allowlist: ${destination}`);
     }
-    if (!this.socket || this.state !== 'open') {
-      throw new Error('WhatsApp transport is not connected');
-    }
+    if (!this.socket || this.state !== 'open') throw new Error('WhatsApp transport is not connected');
 
     const sent = await this.socket.sendMessage(destination, { text });
+    if (sent) this.retryMessages.save(sent);
     const messageId = sent?.key.id ?? undefined;
     if (messageId) this.messages.markAssistantOutbound(messageId, destination);
     return { messageId };
@@ -112,18 +118,18 @@ export class BaileysWhatsAppTransport implements MessageTransport {
   private async createSocket(): Promise<void> {
     this.state = 'connecting';
     const { state, saveCreds } = await useSqliteAuthState(this.database);
+    const baileysLogger = createSilentBaileysLogger();
 
     const socket = makeWASocket({
       auth: state,
-      logger: createSilentBaileysLogger(),
+      logger: baileysLogger,
       browser: Browsers.ubuntu('Chrome'),
       markOnlineOnConnect: false,
       syncFullHistory: false,
-      getMessage: async () => undefined,
+      getMessage: async (key) => this.retryMessages.get(key),
     });
 
     this.socket = socket;
-
     socket.ev.on('creds.update', saveCreds);
     socket.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
@@ -135,9 +141,7 @@ export class BaileysWhatsAppTransport implements MessageTransport {
           logger.warn('WhatsApp pairing required', { pairingCode: code });
         } catch (error) {
           this.pairingRequested = false;
-          logger.error('Could not request WhatsApp pairing code', {
-            error: error instanceof Error ? error.message : String(error),
-          });
+          logger.error('Could not request WhatsApp pairing code', { error: error instanceof Error ? error.message : String(error) });
         }
       } else if (!state.creds.registered && qr && !this.config.phoneNumber) {
         logger.warn('WhatsApp is not paired. Set WHATSAPP_PHONE_NUMBER to receive a pairing code.');
@@ -148,6 +152,7 @@ export class BaileysWhatsAppTransport implements MessageTransport {
         this.pairingRequested = false;
         logger.info('WhatsApp connected', {
           automaticReplies: this.selfJids.size > 0,
+          observerReadOnly: Boolean(this.observerHandler),
           ownSocketId: socket.user?.id,
         });
         if (this.selfJids.size === 0) {
@@ -165,37 +170,71 @@ export class BaileysWhatsAppTransport implements MessageTransport {
           logger.error('WhatsApp session logged out; manual pairing is required');
           return;
         }
-
         this.state = 'closed';
         if (!this.stopping) {
-          const immediate = statusCode === DisconnectReason.restartRequired;
-          this.scheduleReconnect(immediate ? 100 : 3_000);
+          this.scheduleReconnect(statusCode === DisconnectReason.restartRequired ? 100 : 3_000);
         }
       }
     });
 
     socket.ev.on('messages.upsert', async ({ type, messages }) => {
       if (type !== 'notify') return;
-      for (const raw of messages) {
-        await this.handleRawMessage(raw);
-      }
+      for (const raw of messages) await this.handleRawMessage(raw, socket, baileysLogger);
     });
   }
 
-  private async handleRawMessage(raw: WAMessage): Promise<void> {
+  private async handleRawMessage(raw: WAMessage, socket: WASocket, baileysLogger: never): Promise<void> {
     const normalized = normalizeWhatsAppMessage(raw);
     if (!normalized || this.messages.isAssistantOutbound(normalized.id)) return;
 
-    const message = resolveAllowedSelfChat(normalized, this.selfJids);
-    if (!message) return;
+    const routed = routeNormalizedWhatsAppMessage(normalized, this.selfJids, Boolean(this.observerHandler));
+    if (routed.route === 'ignored') return;
 
+    if (routed.route === 'observer_candidate') {
+      try {
+        await this.observerHandler?.(routed.message);
+      } catch (error) {
+        logger.warn('Observer processing failed', { error: error instanceof Error ? error.name : 'unknown' });
+      }
+      return;
+    }
+
+    // Persist only authorized self-chat content needed by Baileys getMessage/retry.
+    // Observer and ignored third-party/group traffic never enters this store.
+    this.retryMessages.save(raw);
+
+    const message = this.attachLazyAudioLoader(routed.message, raw, socket, baileysLogger);
     if (this.config.logMessageContent) {
       logger.debug('Accepted self-chat message', { messageId: message.id, text: message.text });
     } else {
       logger.debug('Accepted self-chat message', { messageId: message.id, kind: message.kind });
     }
-
     await this.handler?.(message);
+  }
+
+  private attachLazyAudioLoader(
+    message: IncomingMessage,
+    raw: WAMessage,
+    socket: WASocket,
+    baileysLogger: never,
+  ): IncomingMessage {
+    if (message.kind !== 'audio') return message;
+    const mimeType = raw.message?.audioMessage?.mimetype ?? 'audio/ogg';
+
+    return {
+      ...message,
+      loadMedia: async () => {
+        const buffer = await downloadMediaMessage(raw, 'buffer', {}, {
+          logger: baileysLogger,
+          reuploadRequest: socket.updateMediaMessage,
+        });
+        return {
+          data: new Uint8Array(buffer),
+          mimeType,
+          fileName: `audio-${message.id}.ogg`,
+        };
+      },
+    };
   }
 
   private scheduleReconnect(delayMs: number): void {
@@ -203,9 +242,7 @@ export class BaileysWhatsAppTransport implements MessageTransport {
     this.reconnectTimer = setTimeout(() => {
       if (this.stopping) return;
       void this.createSocket().catch((error) => {
-        logger.error('WhatsApp reconnect failed', {
-          error: error instanceof Error ? error.message : String(error),
-        });
+        logger.error('WhatsApp reconnect failed', { error: error instanceof Error ? error.message : String(error) });
         this.scheduleReconnect(5_000);
       });
     }, delayMs);

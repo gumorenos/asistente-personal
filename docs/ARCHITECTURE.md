@@ -4,108 +4,250 @@
 
 Construir un asistente personal cuyo primer transporte sea WhatsApp sin convertir OpenClaw, Claude Code, Codex ni ningún framework de agentes en una dependencia del producto.
 
-## Stage 1 data flow
+## Current Stage 2 data flow
 
 ```text
-WhatsApp personal
+WhatsApp / Baileys live messages.upsert
+              |
+              v
+    normalizeWhatsAppMessage
+              |
+              v
+ routeNormalizedWhatsAppMessage
+      |                         |
+      | self autorizado        | no-self + OBSERVER_ENABLED
+      v                         v
+retry store write          ObserverService
+(authorized self only)          |
+      |                         v
+      +--> lazy audio       observed_chats guard
+      |    loader                |
+      v                         v
+AssistantCore             SqliteObservationSink
+      |                         |
+      |                         v
+      |                    observations
       |
-      v
-BaileysWhatsAppTransport
+      +--> MessageRepository ----------------------> SQLite
       |
-      v
-normalizer PN/LID
-      |
-      v
-self-chat guard
-(fromMe + no group + allowlist)
-      |
-      v
-canonical authorized JID
-      |
-      v
-AssistantCore
-      |
-      +--> MessageRepository ------> SQLite
-      |
-      +--> LocalCapabilities
-      |      |
-      |      +--> notes
-      |      +--> reminders -------> ReminderScheduler
-      |      +--> expenses
-      |      +--> audit
-      |
-      +--> deterministic router
-      |
-      v
-same authorized self-chat only
+      +--> Capability[] ordered
+             |
+             +--> LocalCapabilities --------------> notes/reminders/expenses/audit
+             +--> BriefingCapability -------------> local state only
+             +--> ObserverAdminCapability --------> observed_chats
+             +--> CalendarProposalCapability -----> action_requests/pending
+             +--> ActionApprovalCapability -------> approved/rejected
+             +--> CalendarExecutionCapability ----> CalendarActionExecutor
+             |                                        |
+             |                                        +--> action_executions ledger
+             |                                        +--> GoogleCalendarProvider
+             +--> AudioTranscriptionCapability ---> TranscriptionProvider
+             +--> AiCapability (`ia`) ------------> AiProvider
 ```
 
-## Boundaries
+Los caminos self-chat y Observer son mutuamente excluyentes. Observer nunca entra a `AssistantCore` ni al Baileys retry store.
 
-### MessageTransport
+## MessageTransport boundary
 
-`AssistantCore` conoce únicamente la interfaz `MessageTransport`. Baileys es un adapter. Telegram, HTTP, una futura API oficial u otro transporte pueden añadirse sin reescribir el core.
+`AssistantCore` conoce únicamente `MessageTransport`. Baileys sigue siendo un adapter. `sendText()` mantiene un guard independiente que solo acepta destinos incluidos en `WHATSAPP_SELF_JIDS`.
 
-### Self-chat safety boundary
+El transporte Baileys tiene dos handlers conceptualmente distintos:
 
-Stage 1 solo acepta un mensaje cuando:
+- handler principal: recibe únicamente self-chat autorizado y puede llegar a `AssistantCore`;
+- handler Observer: opcional, recibe candidatos no-self y solo llama `ObserverService`.
 
-1. `fromMe=true`;
-2. no es un grupo;
-3. el JID primario o alternativo coincide con un valor configurado en `WHATSAPP_SELF_JIDS`.
+El handler Observer no ofrece una ruta de respuesta.
 
-Si la coincidencia ocurre mediante el JID alternativo, ese JID autorizado pasa a ser el `chatId` canónico usado por el core, replies y recordatorios. Así una entrada aceptada nunca puede provocar una salida hacia un identificador que no pasó la allowlist.
+## Capability boundary
 
-`sendText()` aplica nuevamente la misma allowlist. Esto implementa defensa en profundidad.
+`AssistantCore` procesa una lista ordenada de `Capability`. Una capability puede devolver texto al self-chat o manipular el estado que explícitamente posee, pero no obtiene permiso implícito para ejecutar otra capability.
 
-Con la allowlist vacía no existe descubrimiento basado en mensajes: la aplicación ignora todo el tráfico y no responde.
+Esto evita, por ejemplo:
 
-### Persistence
+- que una respuesta IA se convierta en comando;
+- que una transcripción cree una nota/acción automáticamente;
+- que aprobar una propuesta ejecute Calendar por sí solo;
+- que contenido Observer llegue a capabilities.
 
-SQLite almacena:
+## Stage 2A — AI provider boundary
 
-- mensajes normalizados aceptados;
-- IDs de mensajes outbound del asistente para prevenir loops;
-- notas y estados;
-- recordatorios, destino autorizado y estado de entrega;
-- gastos, categorías y timestamps;
-- audit log de mutaciones;
-- credenciales y Signal keys de Baileys.
+`AiProvider` abstrae el proveedor de texto mediante `/chat/completions` y `fetch` nativo.
 
-El audit log registra tipo de acción, entidad e información operacional mínima; no copia el cuerpo de notas o recordatorios en metadata de auditoría.
+- `AI_ENABLED=false` por defecto;
+- solo `ia`/`ai` explícito;
+- system prompt fijo + prompt actual, sin historial automático;
+- sin tools/function calling;
+- HTTPS remoto, timeout y límites;
+- audit sin prompt/respuesta.
 
-### Deterministic Stage 1 capabilities
+## Stage 2B — transcription boundary
 
-Stage 1 no necesita LLM. El parser local soporta comandos explícitos y fechas deterministas. Fechas/horas inválidas o pasadas en expresiones programadas son rechazadas en vez de convertirse silenciosamente en recordatorios sin fecha.
+`TranscriptionProvider` usa `/audio/transcriptions` con `FormData`/`fetch`.
 
-### Reminder delivery
+El lazy media loader se adjunta solamente al camino self-chat autorizado:
 
-Los recordatorios pendientes se consultan desde SQLite. Una entrega exitosa cambia el estado a `delivered` y queda auditada. Una falla de transporte no cambia el estado, por lo que el scheduler puede reintentar en la siguiente ejecución.
+1. transcripción apagada => no se descarga;
+2. `fileLength` declarado se valida antes del download;
+3. bytes reales se validan antes del upload;
+4. buffer efímero en memoria;
+5. transcript terminal, sin reinyectarse al router.
+
+Observer nunca recibe este loader.
+
+## Stage 2C — proposal / approval boundary
+
+```text
+agenda ...
+   |
+   v
+action_request pending
+   |
+   +--> reject --> rejected
+   |
+   +--> approve -> approved
+```
+
+`CalendarProposalCapability` reutiliza el parser determinista/timezone-aware para producir `calendar.create_event` con `title`, `startAt`, `durationMinutes` y `timeZone`.
+
+Aprobar sigue siendo solo consentimiento local; no llama al proveedor.
+
+## Stage 2D — Calendar execution boundary
+
+Un write real requiere otra instrucción explícita: `ejecuta acción #N` y `CALENDAR_ENABLED=true`.
+
+```text
+approved action
+      |
+      v
+CalendarExecutionCapability
+      |
+      v
+CalendarActionExecutor
+      |
+      +--> revalidate payload/time
+      +--> reserve/reuse idempotency key
+      +--> action_executions lease/ledger
+      |
+      v
+GoogleCalendarProvider
+      |
+      +--> OAuth access-token refresh
+      +--> deterministic Google event ID
+      +--> 409 duplicate recovery via GET
+```
+
+Una ejecución reciente `started` actúa como lease contra concurrencia. Una lease huérfana puede recuperarse después de su ventana usando la misma idempotency key.
+
+## Stage 2E — briefing / retention
+
+`BriefingService` compone únicamente estado local determinista. `BriefingScheduler` puede enviarlo una vez por fecha local a un `BRIEFING_DESTINATION_JID` que debe pertenecer a `WHATSAPP_SELF_JIDS`.
+
+`RetentionScheduler` es opcional e independiente del transporte. Purga solamente filas operativas:
+
+- normalized self-chat messages;
+- Baileys retry messages (`whatsapp_message_store`) con la misma ventana `MESSAGE_RETENTION_DAYS`;
+- outbound IDs;
+- audit;
+- briefing delivery ledger.
+
+No toca dominio ni credenciales.
+
+## Stage 2F — Observer read-only boundary
+
+Observer requiere cuatro gates acumulativos:
+
+1. WhatsApp habilitado;
+2. self-JID administrativo explícito;
+3. `OBSERVER_ENABLED=true`;
+4. JID concreto habilitado en `observed_chats`.
+
+`ObserverService` solo acepta texto allowlisted. `SqliteObservationSink` vuelve a validar texto y usa la tabla dedicada `observations`, con PK `(chat_jid,message_id)`.
+
+No recibe `MessageTransport`, `AssistantCore`, capabilities, IA, transcripción ni Calendar. Por tanto no tiene una ruta para responder o ejecutar acciones.
+
+`ObserverRetentionScheduler` aplica independientemente la ventana 1–90 días de cada chat.
+
+## Stage 2G — Baileys retry/recovery boundary
+
+Baileys consume `getMessage(key)` para retries y determinados message updates. `WhatsAppMessageStore` reemplaza el anterior callback que devolvía siempre `undefined`.
+
+```text
+outbound self sendMessage
+       |
+       +--> returned WAMessage --> whatsapp_message_store
+
+inbound messages.upsert
+       |
+       v
+routeNormalizedWhatsAppMessage
+       |
+       +--> self authorized --> whatsapp_message_store --> AssistantCore
+       |
+       +--> observer/ignored --------------------------X
+
+Baileys getMessage(key)
+       |
+       v
+whatsapp_message_store(remote_jid | remote_jid_alt, message_id)
+       |
+       v
+IMessage
+```
+
+Decisiones:
+
+- migración v10 crea la tabla dedicada;
+- migración v11 añade `remote_jid_alt` e índice PN/LID;
+- se persiste solo `WAMessage.message`, no todo el envelope/chat history;
+- serialización `BufferJSON` conserva `Buffer`/`Uint8Array` necesarios para contenido protobuf;
+- PK `(remote_jid,message_id)`, alias alternativo y upsert idempotente;
+- el lookup siempre exige el mismo `message_id` y una coincidencia primary/alt JID;
+- un mismo mensaje puede recuperarse por PN o LID, incluso si Baileys invierte primary/alt en un resend posterior;
+- outbound se persiste inmediatamente tras `sendMessage` exitoso;
+- inbound solo después de resolver self-chat autorizado;
+- Observer/ignored retornan antes y nunca se duplican en este store;
+- `getMessage` solo hace lookup local y no produce red;
+- cuando retención operacional está activa, usa `MESSAGE_RETENTION_DAYS`.
+
+La implementación cubre el requisito de store y alias; resend/missing-message recovery con PN/LID reales sigue siendo QA live, no una garantía derivada de tests unitarios.
+
+## Persistence
+
+SQLite mantiene actualmente:
+
+- self-chat normalized messages y outbound IDs;
+- Baileys retry message contents (`whatsapp_message_store`) con alias PN/LID;
+- notes, reminders y expenses;
+- audit;
+- Baileys auth state;
+- action requests y action execution ledger;
+- briefing delivery ledger;
+- observer allowlist;
+- text-only observations.
+
+Audio/transcription buffers no se persisten como archivos por la app. Prompts/respuestas IA no se almacenan en audit.
 
 ## Release gates
-
-El CI ejecuta:
 
 ```text
 npm ci
   -> typecheck
   -> tests
   -> runtime dependency audit
-  -> Docker amd64
-  -> Docker arm64
+  -> Docker linux/amd64
+  -> Docker linux/arm64
 ```
 
-ARM64 es un gate explícito porque el destino inicial es Raspberry Pi 5.
+Los gates automatizados no sustituyen el QA real registrado en `docs/QA-PENDING.md`.
 
-## Out of scope for Stage 1
+## Out of scope / blocked
 
-- AI/LLM;
-- observación de chats de terceros;
-- respuestas automáticas a terceros;
-- grupos;
-- Calendar;
-- audio/transcripción;
-- documentos;
-- OpenClaw/Claude Code/Codex.
-
-Esas capacidades deben añadirse detrás de boundaries independientes en etapas posteriores.
+- tool/function calling;
+- fallback automático a IA;
+- ejecución automática de transcripts;
+- respuestas automáticas a terceros/grupos;
+- IA automática sobre contenido Observer;
+- ingestión de media Observer;
+- full-history Observer;
+- documentos/RAG;
+- OpenClaw/Claude Code/Codex como dependencias del core.

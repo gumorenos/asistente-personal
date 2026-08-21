@@ -13,15 +13,14 @@ import {
   parseReminderStatusAction,
 } from './parsers.ts';
 import { localPeriodRange, type ExpensePeriod } from './time-utils.ts';
-
-export interface CapabilityResult {
-  handled: boolean;
-  reply?: string;
-}
+import type { Capability, CapabilityResult } from './types.ts';
 
 const MAX_COMMAND_LENGTH = 2_000;
+const AI_PREFIX = /^(?:\/?ia|\/?ai)(?:\s|$)/i;
 
-export class LocalCapabilities {
+export class LocalCapabilities implements Capability {
+  readonly name = 'local';
+
   private readonly notes: NoteRepository;
   private readonly reminders: ReminderRepository;
   private readonly expenses: ExpenseRepository;
@@ -49,6 +48,9 @@ export class LocalCapabilities {
     const text = message.text.trim();
     if (!text) return undefined;
     if (text.length > MAX_COMMAND_LENGTH) {
+      // Stage 2 capabilities own their limits. Do not let the Stage 1 local bound
+      // intercept an explicit AI request before AiCapability can validate it.
+      if (AI_PREFIX.test(text)) return undefined;
       return { handled: true, reply: '⚠️ El comando es demasiado largo y no fue guardado.' };
     }
 
@@ -56,11 +58,7 @@ export class LocalCapabilities {
     if (noteAction) {
       const changed = this.notes.setStatus(noteAction.id, noteAction.status);
       if (changed) {
-        this.audit.record({
-          eventType: `note.${noteAction.status}`,
-          entityType: 'note',
-          entityId: String(noteAction.id),
-        });
+        this.audit.record({ eventType: `note.${noteAction.status}`, entityType: 'note', entityId: String(noteAction.id) });
       }
       return {
         handled: true,
@@ -74,11 +72,7 @@ export class LocalCapabilities {
     if (reminderAction) {
       const changed = this.reminders.setStatus(reminderAction.id, reminderAction.status);
       if (changed) {
-        this.audit.record({
-          eventType: `reminder.${reminderAction.status}`,
-          entityType: 'reminder',
-          entityId: String(reminderAction.id),
-        });
+        this.audit.record({ eventType: `reminder.${reminderAction.status}`, entityType: 'reminder', entityId: String(reminderAction.id) });
       }
       return {
         handled: true,
@@ -116,10 +110,7 @@ export class LocalCapabilities {
 
     const expense = parseExpense(text);
     if (expense) {
-      const id = this.expenses.create({
-        ...expense,
-        occurredAt: this.now().toISOString(),
-      });
+      const id = this.expenses.create({ ...expense, occurredAt: this.now().toISOString() });
       this.audit.record({
         eventType: 'expense.created',
         entityType: 'expense',
@@ -135,10 +126,7 @@ export class LocalCapabilities {
     const reminder = parseReminder(text, this.now(), this.timeZone);
     if (reminder) {
       if (reminder.invalidSchedule) {
-        return {
-          handled: true,
-          reply: '⚠️ No pude interpretar una fecha/hora futura válida. No guardé el recordatorio.',
-        };
+        return { handled: true, reply: '⚠️ No pude interpretar una fecha/hora futura válida. No guardé el recordatorio.' };
       }
       const id = this.reminders.create({ ...reminder, chatId: message.chatId });
       this.audit.record({
@@ -148,15 +136,9 @@ export class LocalCapabilities {
         metadata: { dueAt: reminder.dueAt ?? null },
       });
       if (!reminder.dueAt) {
-        return {
-          handled: true,
-          reply: `⏰ Recordatorio #${id} guardado sin hora. Puedes verlo con “recordatorios”.`,
-        };
+        return { handled: true, reply: `⏰ Recordatorio #${id} guardado sin hora. Puedes verlo con “recordatorios”.` };
       }
-      return {
-        handled: true,
-        reply: `⏰ Recordatorio #${id} creado para ${this.formatDate(reminder.dueAt)}: ${reminder.body}`,
-      };
+      return { handled: true, reply: `⏰ Recordatorio #${id} creado para ${this.formatDate(reminder.dueAt)}: ${reminder.body}` };
     }
 
     const folded = foldText(text);

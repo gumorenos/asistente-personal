@@ -16,9 +16,7 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
         is_group INTEGER NOT NULL CHECK (is_group IN (0,1)),
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       ) STRICT;
-
-      CREATE INDEX IF NOT EXISTS idx_messages_chat_timestamp
-        ON messages(chat_id, timestamp DESC);
+      CREATE INDEX IF NOT EXISTS idx_messages_chat_timestamp ON messages(chat_id, timestamp DESC);
 
       CREATE TABLE IF NOT EXISTS assistant_outbound (
         message_id TEXT PRIMARY KEY,
@@ -83,21 +81,128 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
     sql: `
       ALTER TABLE reminders ADD COLUMN chat_id TEXT;
       ALTER TABLE reminders ADD COLUMN delivered_at TEXT;
-
-      CREATE INDEX IF NOT EXISTS idx_reminders_due
-        ON reminders(status, due_at)
+      CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(status, due_at)
         WHERE status = 'pending' AND due_at IS NOT NULL;
     `,
   },
   {
     version: 3,
     sql: `
-      CREATE INDEX IF NOT EXISTS idx_expenses_occurred_at
-        ON expenses(occurred_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_expenses_category_occurred
-        ON expenses(category, occurred_at DESC);
-      CREATE INDEX IF NOT EXISTS idx_audit_created_at
-        ON audit_log(created_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_expenses_occurred_at ON expenses(occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_expenses_category_occurred ON expenses(category, occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_audit_created_at ON audit_log(created_at DESC);
+    `,
+  },
+  {
+    version: 4,
+    sql: `
+      CREATE TABLE IF NOT EXISTS action_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        action_type TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        decided_at TEXT,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS idx_action_requests_status_created ON action_requests(status, id DESC);
+    `,
+  },
+  {
+    version: 5,
+    sql: `
+      ALTER TABLE action_requests ADD COLUMN expires_at TEXT;
+      CREATE INDEX IF NOT EXISTS idx_action_requests_pending_expiry
+        ON action_requests(status, expires_at) WHERE status = 'pending';
+    `,
+  },
+  {
+    version: 6,
+    sql: `
+      CREATE TABLE IF NOT EXISTS action_executions (
+        action_request_id INTEGER PRIMARY KEY,
+        idempotency_key TEXT NOT NULL UNIQUE,
+        provider TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('started', 'succeeded', 'failed')),
+        attempt_count INTEGER NOT NULL DEFAULT 1 CHECK (attempt_count >= 1),
+        external_id TEXT,
+        error_code TEXT,
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (action_request_id) REFERENCES action_requests(id) ON DELETE RESTRICT
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS idx_action_executions_status ON action_executions(status, updated_at DESC);
+    `,
+  },
+  {
+    version: 7,
+    sql: `
+      CREATE TABLE IF NOT EXISTS briefing_deliveries (
+        local_date TEXT PRIMARY KEY,
+        destination TEXT NOT NULL,
+        message_id TEXT,
+        delivered_at TEXT NOT NULL
+      ) STRICT;
+    `,
+  },
+  {
+    version: 8,
+    sql: `
+      CREATE TABLE IF NOT EXISTS observed_chats (
+        jid TEXT PRIMARY KEY,
+        label TEXT,
+        retention_days INTEGER NOT NULL DEFAULT 7 CHECK (retention_days BETWEEN 1 AND 90),
+        enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS idx_observed_chats_enabled ON observed_chats(enabled, jid);
+    `,
+  },
+  {
+    version: 9,
+    sql: `
+      CREATE TABLE IF NOT EXISTS observations (
+        chat_jid TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        sender_id TEXT,
+        timestamp INTEGER NOT NULL,
+        text TEXT NOT NULL CHECK (length(text) BETWEEN 1 AND 4000),
+        kind TEXT NOT NULL CHECK (kind = 'text'),
+        is_group INTEGER NOT NULL CHECK (is_group IN (0,1)),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (chat_jid, message_id),
+        FOREIGN KEY (chat_jid) REFERENCES observed_chats(jid) ON DELETE RESTRICT
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS idx_observations_chat_timestamp
+        ON observations(chat_jid, timestamp DESC);
+    `,
+  },
+  {
+    version: 10,
+    sql: `
+      CREATE TABLE IF NOT EXISTS whatsapp_message_store (
+        remote_jid TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        content_json TEXT NOT NULL,
+        from_me INTEGER NOT NULL CHECK (from_me IN (0,1)),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (remote_jid, message_id)
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS idx_whatsapp_message_store_updated
+        ON whatsapp_message_store(updated_at);
+    `,
+  },
+  {
+    version: 11,
+    sql: `
+      ALTER TABLE whatsapp_message_store ADD COLUMN remote_jid_alt TEXT;
+      CREATE INDEX IF NOT EXISTS idx_whatsapp_message_store_alt
+        ON whatsapp_message_store(remote_jid_alt, message_id)
+        WHERE remote_jid_alt IS NOT NULL;
     `,
   },
 ];
@@ -109,13 +214,10 @@ export function runMigrations(db: DatabaseSync): void {
       applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     ) STRICT;
   `);
-
   const appliedRows = db.prepare('SELECT version FROM schema_migrations').all() as Array<{ version: number }>;
   const applied = new Set(appliedRows.map((row) => row.version));
-
   for (const migration of MIGRATIONS) {
     if (applied.has(migration.version)) continue;
-
     db.exec('BEGIN IMMEDIATE');
     try {
       db.exec(migration.sql);

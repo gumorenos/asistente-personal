@@ -1,5 +1,13 @@
 export type MessageKind = 'text' | 'audio' | 'image' | 'document' | 'video' | 'unknown';
 
+export interface LoadedMedia {
+  data: Uint8Array;
+  mimeType?: string;
+  fileName?: string;
+}
+
+export type MediaLoader = () => Promise<LoadedMedia>;
+
 export interface IncomingMessage {
   id: string;
   chatId: string;
@@ -10,6 +18,8 @@ export interface IncomingMessage {
   kind: MessageKind;
   fromMe: boolean;
   isGroup: boolean;
+  mediaSizeBytes?: number;
+  loadMedia?: MediaLoader;
 }
 
 export interface SendTextResult {

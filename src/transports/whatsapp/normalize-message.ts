@@ -10,6 +10,13 @@ function toUnixSeconds(value: WAMessage['messageTimestamp']): number {
   return Number.isFinite(numeric) ? numeric : Math.floor(Date.now() / 1000);
 }
 
+function toOptionalNonNegativeInteger(value: unknown): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  const numeric = typeof value === 'bigint' ? Number(value) : Number(value);
+  if (!Number.isSafeInteger(numeric) || numeric < 0) return undefined;
+  return numeric;
+}
+
 function detectKind(message: NonNullable<WAMessage['message']>): MessageKind {
   if (message.audioMessage) return 'audio';
   if (message.imageMessage) return 'image';
@@ -47,5 +54,8 @@ export function normalizeWhatsAppMessage(raw: WAMessage): IncomingMessage | unde
     kind: detectKind(raw.message),
     fromMe: raw.key.fromMe === true,
     isGroup: chatId.endsWith('@g.us'),
+    mediaSizeBytes: raw.message.audioMessage
+      ? toOptionalNonNegativeInteger(raw.message.audioMessage.fileLength)
+      : undefined,
   };
 }
