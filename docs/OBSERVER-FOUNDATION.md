@@ -1,10 +1,10 @@
 # Observer read-only contract
 
-Observer existe como feature **opt-in** y está deshabilitado por defecto con `OBSERVER_ENABLED=false`. Su objetivo inicial es persistir texto de chats expresamente autorizados para análisis posterior, sin responder, ejecutar comandos ni invocar servicios externos.
+Observer existe como feature **opt-in** y está deshabilitado por defecto con `OBSERVER_ENABLED=false`. Su objetivo inicial es persistir texto de chats expresamente autorizados para análisis local posterior, sin responder, ejecutar comandos ni invocar servicios externos.
 
 ## Activation gates
 
-Para que Observer pueda arrancar se requieren simultáneamente:
+Para que Observer pueda capturar se requieren simultáneamente:
 
 1. `WHATSAPP_ENABLED=true`;
 2. al menos un `WHATSAPP_SELF_JIDS` administrativo explícito;
@@ -13,7 +13,7 @@ Para que Observer pueda arrancar se requieren simultáneamente:
 
 Si cualquiera de esas condiciones falta, el chat no se persiste.
 
-La allowlist se administra únicamente desde el self-chat mediante:
+La allowlist se administra únicamente desde el self-chat:
 
 ```text
 observa chat <jid> como <etiqueta>
@@ -99,6 +99,27 @@ Reglas de persistencia:
 - listados del sink siempre son chat-scoped y tienen límite máximo;
 - deshabilitar el chat impide writes futuros inmediatamente.
 
+## Explicit local reads
+
+Las observaciones no se resumen ni se buscan automáticamente. El único acceso de usuario inicial es una capability del **self-chat**:
+
+```text
+observaciones <jid> [1-10]
+```
+
+Reglas:
+
+- exige JID exacto; no busca globalmente por label/contenido;
+- el JID debe existir en el historial administrativo `observed_chats`;
+- default 5 filas, máximo 10;
+- cada texto se compacta y trunca antes de responder;
+- la respuesta total tiene un límite conservador;
+- un chat deshabilitado puede conservar filas hasta su purge y esas filas siguen consultables explícitamente, marcando el chat como deshabilitado;
+- la lectura no usa IA;
+- audit registra hash del JID, requested/returned counts y estado enabled, nunca JID crudo, label ni texto observado.
+
+Esta ruta no cambia la separación de captura: el contenido observado sigue sin poder provocar una respuesta por sí mismo. La respuesta existe únicamente porque el self-chat pidió una lectura concreta.
+
 ## Retention
 
 Cada fila de `observed_chats` define `retention_days` entre 1 y 90 días; default 7.
@@ -122,6 +143,7 @@ Observer initial es deliberadamente mínimo:
 - no importa historial previo;
 - no descarga ni analiza audio/imágenes/documentos/video;
 - no genera resúmenes automáticos;
+- no hace búsqueda global/full-text;
 - no ejecuta IA automática;
 - no envía alertas derivadas del contenido observado;
 - no responde a terceros ni grupos.
@@ -136,6 +158,8 @@ Los checks obligatorios siguen en [`QA-PENDING.md`](QA-PENDING.md). En particula
 - chat no allowlisted => cero persistencia;
 - text-only + no media download;
 - cero replies/acciones/tráfico externo causado por contenido observado;
+- lectura exacta por JID sin mezcla entre chats;
+- límites/truncamiento del comando `observaciones`;
 - deshabilitación inmediata;
 - idempotencia ante resend;
 - retención por chat tras restart/reboot;
