@@ -311,6 +311,109 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
       END;
     `,
   },
+  {
+    version: 13,
+    sql: `
+      INSERT INTO self_memory_fts(source, source_id, occurred_at, text)
+      SELECT
+        'reminder',
+        CAST(id AS TEXT),
+        CAST(strftime('%s', COALESCE(due_at, created_at)) AS INTEGER),
+        body
+      FROM reminders
+      WHERE length(trim(body)) > 0;
+
+      INSERT INTO self_memory_fts(source, source_id, occurred_at, text)
+      SELECT
+        'expense',
+        CAST(id AS TEXT),
+        CAST(strftime('%s', occurred_at) AS INTEGER),
+        trim(
+          COALESCE(description, '') || ' ' ||
+          COALESCE(category, '') || ' ' ||
+          currency || ' ' ||
+          printf('%.2f', amount_minor / 100.0)
+        )
+      FROM expenses;
+
+      CREATE TRIGGER IF NOT EXISTS trg_reminders_memory_ai
+      AFTER INSERT ON reminders
+      WHEN length(trim(NEW.body)) > 0
+      BEGIN
+        INSERT INTO self_memory_fts(source, source_id, occurred_at, text)
+        VALUES (
+          'reminder',
+          CAST(NEW.id AS TEXT),
+          CAST(strftime('%s', COALESCE(NEW.due_at, NEW.created_at)) AS INTEGER),
+          NEW.body
+        );
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_reminders_memory_ad
+      AFTER DELETE ON reminders
+      BEGIN
+        DELETE FROM self_memory_fts
+        WHERE source = 'reminder' AND source_id = CAST(OLD.id AS TEXT);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_reminders_memory_au
+      AFTER UPDATE OF body, due_at ON reminders
+      BEGIN
+        DELETE FROM self_memory_fts
+        WHERE source = 'reminder' AND source_id = CAST(OLD.id AS TEXT);
+        INSERT INTO self_memory_fts(source, source_id, occurred_at, text)
+        SELECT
+          'reminder',
+          CAST(NEW.id AS TEXT),
+          CAST(strftime('%s', COALESCE(NEW.due_at, NEW.created_at)) AS INTEGER),
+          NEW.body
+        WHERE length(trim(NEW.body)) > 0;
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_expenses_memory_ai
+      AFTER INSERT ON expenses
+      BEGIN
+        INSERT INTO self_memory_fts(source, source_id, occurred_at, text)
+        VALUES (
+          'expense',
+          CAST(NEW.id AS TEXT),
+          CAST(strftime('%s', NEW.occurred_at) AS INTEGER),
+          trim(
+            COALESCE(NEW.description, '') || ' ' ||
+            COALESCE(NEW.category, '') || ' ' ||
+            NEW.currency || ' ' ||
+            printf('%.2f', NEW.amount_minor / 100.0)
+          )
+        );
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_expenses_memory_ad
+      AFTER DELETE ON expenses
+      BEGIN
+        DELETE FROM self_memory_fts
+        WHERE source = 'expense' AND source_id = CAST(OLD.id AS TEXT);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_expenses_memory_au
+      AFTER UPDATE OF description, category, currency, amount_minor, occurred_at ON expenses
+      BEGIN
+        DELETE FROM self_memory_fts
+        WHERE source = 'expense' AND source_id = CAST(OLD.id AS TEXT);
+        INSERT INTO self_memory_fts(source, source_id, occurred_at, text)
+        VALUES (
+          'expense',
+          CAST(NEW.id AS TEXT),
+          CAST(strftime('%s', NEW.occurred_at) AS INTEGER),
+          trim(
+            COALESCE(NEW.description, '') || ' ' ||
+            COALESCE(NEW.category, '') || ' ' ||
+            NEW.currency || ' ' ||
+            printf('%.2f', NEW.amount_minor / 100.0)
+          )
+        );
+      END;
+    `,
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): void {
