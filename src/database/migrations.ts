@@ -205,6 +205,112 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
         WHERE remote_jid_alt IS NOT NULL;
     `,
   },
+  {
+    version: 12,
+    sql: `
+      CREATE VIRTUAL TABLE IF NOT EXISTS self_memory_fts USING fts5(
+        source UNINDEXED,
+        source_id UNINDEXED,
+        occurred_at UNINDEXED,
+        text,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+
+      INSERT INTO self_memory_fts(source, source_id, occurred_at, text)
+      SELECT 'message', id, timestamp, text
+      FROM messages
+      WHERE kind = 'text' AND length(trim(text)) > 0;
+
+      INSERT INTO self_memory_fts(source, source_id, occurred_at, text)
+      SELECT 'note', CAST(id AS TEXT), CAST(strftime('%s', created_at) AS INTEGER), body
+      FROM notes
+      WHERE length(trim(body)) > 0;
+
+      CREATE TRIGGER IF NOT EXISTS trg_messages_memory_ai
+      AFTER INSERT ON messages
+      WHEN NEW.kind = 'text' AND length(trim(NEW.text)) > 0
+      BEGIN
+        INSERT INTO self_memory_fts(source, source_id, occurred_at, text)
+        VALUES ('message', NEW.id, NEW.timestamp, NEW.text);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_messages_memory_ad
+      AFTER DELETE ON messages
+      BEGIN
+        DELETE FROM self_memory_fts
+        WHERE source = 'message' AND source_id = OLD.id;
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_messages_memory_au
+      AFTER UPDATE OF text, kind, timestamp ON messages
+      BEGIN
+        DELETE FROM self_memory_fts
+        WHERE source = 'message' AND source_id = OLD.id;
+        INSERT INTO self_memory_fts(source, source_id, occurred_at, text)
+        SELECT 'message', NEW.id, NEW.timestamp, NEW.text
+        WHERE NEW.kind = 'text' AND length(trim(NEW.text)) > 0;
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_notes_memory_ai
+      AFTER INSERT ON notes
+      WHEN length(trim(NEW.body)) > 0
+      BEGIN
+        INSERT INTO self_memory_fts(source, source_id, occurred_at, text)
+        VALUES ('note', CAST(NEW.id AS TEXT), CAST(strftime('%s', NEW.created_at) AS INTEGER), NEW.body);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_notes_memory_ad
+      AFTER DELETE ON notes
+      BEGIN
+        DELETE FROM self_memory_fts
+        WHERE source = 'note' AND source_id = CAST(OLD.id AS TEXT);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_notes_memory_au
+      AFTER UPDATE OF body ON notes
+      BEGIN
+        DELETE FROM self_memory_fts
+        WHERE source = 'note' AND source_id = CAST(OLD.id AS TEXT);
+        INSERT INTO self_memory_fts(source, source_id, occurred_at, text)
+        SELECT 'note', CAST(NEW.id AS TEXT), CAST(strftime('%s', NEW.created_at) AS INTEGER), NEW.body
+        WHERE length(trim(NEW.body)) > 0;
+      END;
+
+      CREATE VIRTUAL TABLE IF NOT EXISTS observation_fts USING fts5(
+        chat_jid UNINDEXED,
+        message_id UNINDEXED,
+        text,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+
+      INSERT INTO observation_fts(chat_jid, message_id, text)
+      SELECT chat_jid, message_id, text
+      FROM observations;
+
+      CREATE TRIGGER IF NOT EXISTS trg_observations_fts_ai
+      AFTER INSERT ON observations
+      BEGIN
+        INSERT INTO observation_fts(chat_jid, message_id, text)
+        VALUES (NEW.chat_jid, NEW.message_id, NEW.text);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_observations_fts_ad
+      AFTER DELETE ON observations
+      BEGIN
+        DELETE FROM observation_fts
+        WHERE chat_jid = OLD.chat_jid AND message_id = OLD.message_id;
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS trg_observations_fts_au
+      AFTER UPDATE OF text ON observations
+      BEGIN
+        DELETE FROM observation_fts
+        WHERE chat_jid = OLD.chat_jid AND message_id = OLD.message_id;
+        INSERT INTO observation_fts(chat_jid, message_id, text)
+        VALUES (NEW.chat_jid, NEW.message_id, NEW.text);
+      END;
+    `,
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): void {
