@@ -1,8 +1,35 @@
 # Testing / QA pending
 
-Updated: 2026-08-20 (America/Lima)
+Updated: 2026-08-21 (America/Lima)
 
 Este archivo es la fuente de verdad del QA que requiere una sesión real, infraestructura externa o condiciones operativas que no deben darse por aprobadas únicamente por tests automatizados. **El desarrollo puede continuar mientras estos checks permanecen pendientes.**
+
+## QA execution 2026-08-21 — OpenClaw on commit `271402b`
+
+Resultado global reportado: **BLOCKED**, no por un fallo funcional nuevo sino por falta de sesión/número WhatsApp QA explícito y credenciales externas de prueba.
+
+Entorno ejecutado:
+
+- host `vnic-gumorenos`;
+- Ubuntu Linux 6.17.0-1019-oracle, `aarch64`;
+- Node 22.23.2 / npm 10.9.8;
+- Docker 29.7.2;
+- Baileys 7.0.0-rc13;
+- checkout detached y worktree limpio en `271402b71e1e890a3581d76667ddb876484d5e66`.
+
+Evidencia obtenida en ese run:
+
+- PASS: SHA remoto/PR, `npm ci`, typecheck + 128/128 tests, runtime audit 0 high+, Docker ARM64.
+- BLOCKED host-only: Docker AMD64 en ese Oracle ARM64 sin binfmt/QEMU; esto no se interpreta como bug del repo.
+- PASS local: ping/dedupe, estado/ayuda, notas, gastos, recordatorios/retry/persistencia SQLite.
+- PASS local fake / BLOCKED externo: IA explícita, audio/transcripción y Calendar mantienen los boundaries esperados, pero no se probaron proveedores externos reales.
+- PASS local: briefing, dedupe diario y purge operacional con preservación del estado de dominio.
+- PASS local / PENDING real: Observer allowlist, PN/LID simulado, media sin loader, idempotencia, lectura limitada, disable y retención.
+- PASS parcial operaciones: health/readiness local, loopback, SIGTERM, WAL, migraciones 1–9 de ese commit y backup/restore básico.
+- PENDING: pairing WhatsApp, restart/reboot/red reales, PN/LID/grupos reales, outbound real a terceros bloqueado, voice note real, Google/AI externos, briefing/Observer live, estabilidad 24 h.
+- En `271402b` se confirmó que `getMessage` devolvía siempre `undefined`; este gap de implementación se aborda después de ese run mediante migración v10 + store persistente. El recovery real sigue pendiente hasta disponer de sesión WhatsApp QA.
+
+No se marcaron como PASS los checks que requieren WhatsApp/Google/proveedor externo/24 h solo por haber pasado pruebas locales.
 
 ## Stage 1 — automated development gates completed
 
@@ -36,9 +63,9 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 
 ## Stage 2A — AI provider — manual / external QA
 
-- [ ] `AI_ENABLED=false`: `ia hola` no genera tráfico externo.
+- [ ] `AI_ENABLED=false`: `ia hola` no genera tráfico externo real.
 - [ ] Configurar endpoint OpenAI-compatible de prueba con credenciales no críticas.
-- [ ] `ia hola` => exactamente una llamada a `/chat/completions`.
+- [ ] `ia hola` => exactamente una llamada a `/chat/completions` real.
 - [ ] Mensaje normal y comandos locales no generan tráfico al proveedor.
 - [ ] Request contiene solo system prompt fijo + prompt explícito actual.
 - [ ] `audit_log` contiene metadata, nunca prompt/respuesta.
@@ -48,10 +75,12 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 - [ ] Output que parezca comando no se ejecuta.
 - [ ] Medir latencia/costo y revisar política de retención/privacidad del proveedor elegido.
 
+Evidencia local OpenClaw 2026-08-21: proveedor fake PASS para disabled/no-call, llamada explícita única, request mínimo, error seguro y audit sin contenido. No sustituye QA externo.
+
 ## Stage 2B — audio transcription — manual / external QA
 
-- [ ] `TRANSCRIPTION_ENABLED=false`: enviar nota de voz autorizada no descarga media para transcripción ni genera tráfico al proveedor.
-- [ ] Audio de terceros/grupos no obtiene loader útil ni genera tráfico de transcripción.
+- [ ] `TRANSCRIPTION_ENABLED=false`: enviar nota de voz autorizada real no descarga media para transcripción ni genera tráfico al proveedor.
+- [ ] Audio de terceros/grupos reales no obtiene loader útil ni genera tráfico de transcripción.
 - [ ] Configurar endpoint OpenAI-compatible de prueba `/audio/transcriptions` con credenciales/modelo no críticos.
 - [ ] Nota de voz real OGG/Opus de WhatsApp se descarga una sola vez y se transcribe correctamente.
 - [ ] `fileLength` declarado mayor a `TRANSCRIPTION_MAX_BYTES` se rechaza antes de descargar.
@@ -61,6 +90,8 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 - [ ] HTTP 401/429/500 y timeout generan respuesta segura sin body upstream.
 - [ ] Transcript con sintaxis `anota`, `recuérdame`, `agenda`, etc. se muestra como texto y no se ejecuta.
 - [ ] Medir RAM, latencia/costo y revisar retención/privacidad del proveedor antes de audio sensible.
+
+Evidencia local OpenClaw 2026-08-21: fake provider PASS para disabled/no-download, límites pre/post y transcript no ejecutable. Falta audio WhatsApp real.
 
 ## Stage 2C — proposal + approval boundary
 
@@ -77,13 +108,15 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 
 ### Manual / self-chat QA
 
-- [ ] `agenda mañana a las 10 reunión de prueba por 30 minutos` crea una única propuesta.
-- [ ] `aprueba acción #N` cambia una sola vez a `approved` y todavía no crea evento.
-- [ ] `rechaza acción #N` cambia una sola vez a `rejected`.
-- [ ] Persistencia de pending/approved/rejected tras restart/reboot.
+- [ ] `agenda mañana a las 10 reunión de prueba por 30 minutos` desde WhatsApp real crea una única propuesta.
+- [ ] `aprueba acción #N` desde WhatsApp real cambia una sola vez a `approved` y todavía no crea evento.
+- [ ] `rechaza acción #N` desde WhatsApp real cambia una sola vez a `rejected`.
+- [ ] Persistencia de pending/approved/rejected tras restart/reboot real.
 - [ ] Propuesta caducada no puede aprobarse.
 - [ ] Audit real no contiene título/payload.
 - [ ] Frases con mañana, weekdays, `DD/MM`, ISO y duración funcionan en America/Lima.
+
+Evidencia local OpenClaw 2026-08-21: proposal/approve/reject/caducidad PASS sin WhatsApp real.
 
 ## Stage 2D — Google Calendar execution — manual / external QA
 
@@ -104,7 +137,7 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 
 - [ ] Crear OAuth client de prueba con mínimo alcance necesario y obtener refresh token no crítico.
 - [ ] Verificar token refresh real y que secretos nunca entren a SQLite/audit/logs.
-- [ ] Con `CALENDAR_ENABLED=false`, `ejecuta acción #N` no genera tráfico Google.
+- [ ] Con `CALENDAR_ENABLED=false`, `ejecuta acción #N` no genera tráfico Google real.
 - [ ] Acción pending/rejected/caducada jamás crea evento.
 - [ ] Acción approved solo crea evento después de `ejecuta acción #N`.
 - [ ] Repetir `ejecuta acción #N` no crea duplicado.
@@ -112,6 +145,8 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 - [ ] Verificar timezone, duración y título del evento real.
 - [ ] Invalid/revoked refresh token falla de forma segura.
 - [ ] Revisar scopes OAuth, almacenamiento de `.env`/secret y estrategia de rotación antes de uso diario.
+
+Evidencia local OpenClaw 2026-08-21: boundary de Calendar PASS; QA Google quedó BLOCKED por falta de OAuth/calendario QA.
 
 ## Stage 2E — personal briefing / retention — manual QA
 
@@ -121,17 +156,20 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 - [x] Scheduler diario es opt-in y deduplica por fecha local.
 - [x] Destino de briefing debe estar explícitamente en `WHATSAPP_SELF_JIDS`.
 - [x] Retención operacional es opt-in y no toca notas/gastos/recordatorios/acciones/allowlists/credenciales.
+- [x] Desde migración v10, `whatsapp_message_store` sigue `MESSAGE_RETENTION_DAYS` cuando `RETENTION_ENABLED=true`.
 
 ### Manual
 
-- [ ] `briefing` muestra próximos recordatorios, notas activas, gasto del mes y acciones pendientes con datos reales.
-- [ ] `BRIEFING_ENABLED=false` => cero envío programado.
+- [ ] `briefing` muestra próximos recordatorios, notas activas, gasto del mes y acciones pendientes con datos reales vía WhatsApp.
+- [ ] `BRIEFING_ENABLED=false` => cero envío programado real.
 - [ ] Briefing programado se entrega una sola vez por día local incluso tras restart.
 - [ ] Retry offline no produce duplicados.
 - [ ] `RETENTION_ENABLED=false` no elimina filas operativas.
-- [ ] Activar ventanas cortas en DB de prueba y confirmar purge exacto de messages/outbound/audit/briefing deliveries.
+- [ ] Activar ventanas cortas en DB de prueba y confirmar purge exacto de messages/whatsapp_message_store/outbound/audit/briefing deliveries.
 - [ ] Confirmar que estado de dominio y credenciales sobreviven al purge.
 - [ ] Backup/restore antes y después del purge; revisar WAL/SHM y tamaño real del DB.
+
+Evidencia local OpenClaw 2026-08-21: briefing, dedupe/retry y purge de tablas existentes en `271402b` PASS. El store v10 se valida por tests posteriores y requiere nuevo QA real.
 
 ## Stage 2F — Observer read-only — manual / release-blocking before daily use
 
@@ -152,6 +190,7 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 - [x] Observer no tiene ruta de `sendText`, IA, transcripción, Calendar ni creación de acciones.
 - [x] `observaciones <jid> [1-10]` es una lectura self-chat explícita, exacta por JID, sin IA y con salida acotada.
 - [x] Lecturas Observer se auditan con hash del JID + counts, nunca con JID/texto/label crudos.
+- [x] El nuevo `whatsapp_message_store` se escribe únicamente después de resolver la ruta self-chat; Observer/ignored retornan antes y no duplican contenido raw en ese store.
 
 ### Manual / real WhatsApp QA
 
@@ -163,6 +202,7 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 - [ ] PN/LID alternativo real se canonicaliza al JID que está allowlisted.
 - [ ] Mensaje observado jamás produce reply, read-receipt adicional intencional, nota, gasto, recordatorio, acción, IA, transcripción ni Calendar traffic.
 - [ ] Audio/imagen/documento/video observado no descarga media y no crea fila de observación.
+- [ ] Confirmar además que Observer/terceros/grupos no crean filas en `whatsapp_message_store`.
 - [ ] Duplicado/resend del mismo message ID crea una sola fila.
 - [ ] `observaciones <jid>` desde el self-chat devuelve solo filas del JID exacto y nunca mezcla otro chat.
 - [ ] `observaciones <jid> 10` respeta límite, truncamiento y timezone; `11` se rechaza.
@@ -175,20 +215,39 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 - [ ] Medir CPU/RAM/crecimiento DB con Observer activo durante al menos 24h.
 - [ ] Revisar consentimiento, necesidad y minimización de datos antes de observar chats que involucren a terceros.
 
+Evidencia local OpenClaw 2026-08-21: allowlist, PN/LID simulado, dedupe, media sin loader, lectura limitada, disable, retención y audit PASS. Live WhatsApp sigue PENDING.
+
 ## Health / operations — manual
 
-- [ ] `/healthz` 200 y `/readyz` refleja DB/transport en deployment real.
-- [ ] Puerto health no expuesto públicamente.
+- [ ] `/healthz` 200 y `/readyz` refleja DB/transport en deployment WhatsApp real.
+- [ ] Puerto health no expuesto públicamente en deployment final.
 - [ ] SIGTERM/SIGINT cierra todos los schedulers, transport, health y SQLite.
 - [ ] Recuperación WAL/SHM después de kill no limpio.
 - [ ] Permisos reales de directorio/DB en RPi.
-- [ ] Backup/restore y row counts/migrations 1→9 desde DB nueva y sobre DB existente.
+- [ ] Backup/restore y row counts/migrations 1→10 desde DB nueva y sobre DB existente.
 - [ ] Consumo CPU/RAM estable durante al menos 24h.
 
-## Baileys reliability gaps
+Evidencia OpenClaw 2026-08-21 sobre `271402b`: health/readiness local PASS con transport disabled, loopback PASS, SIGTERM PASS, WAL activo, migraciones 1–9 de ese commit y backup/restore básico PASS. Repetir migraciones incluyendo v10 y deployment final.
 
-- [ ] Persisted raw WhatsApp message store para `getMessage()` antes de depender de resend/missing-message recovery.
-- [ ] Validar resend/missing-message recovery real.
+## Baileys reliability
+
+### Automated development checks
+
+- [x] Migración v10 crea `whatsapp_message_store` persistente con key `(remote_jid,message_id)`.
+- [x] `getMessage` consulta el store en vez de devolver siempre `undefined`.
+- [x] Respuestas enviadas por el asistente se guardan inmediatamente después de `sendMessage`.
+- [x] Mensajes inbound solo se guardan después de resolver self-chat autorizado; Observer/ignored no entran al raw retry store.
+- [x] Serialización usa `BufferJSON` y preserva `Uint8Array`/campos binarios.
+- [x] Upsert es idempotente y el lookup es exacto por JID + message ID.
+- [x] Con retención operacional habilitada, el store sigue `MESSAGE_RETENTION_DAYS`.
+
+### Manual / real WhatsApp QA
+
+- [ ] Validar que mensajes self reales crean filas recuperables en `whatsapp_message_store` y sobreviven restart.
+- [ ] Forzar/observar `getMessage()` real durante resend/missing-message recovery.
+- [ ] Validar resend/missing-message recovery real end-to-end.
+- [ ] Confirmar que terceros/grupos/Observer no generan filas raw.
+- [ ] Confirmar purge real del store con retención habilitada.
 - [ ] Validar versión Baileys fijada contra comportamiento real actual.
 - [ ] Revisar upgrades separadamente; no auto-upgrade.
 
@@ -198,6 +257,7 @@ Resultado de cierre Stage 1: **26 tests + typecheck + audit + multi-arch Docker*
 - [x] Calendar execution con ledger/idempotencia y doble acto explícito.
 - [x] Chat-level Observer allowlist + workflow administrativo.
 - [x] Retention/purge operacional y per-chat Observer.
+- [x] Raw retry store limitado por código a self-chat autorizado/outbound y excluido de Observer.
 - [ ] Decidir cifrado de SQLite y backups en el dispositivo final.
 - [ ] Definir política de consentimiento/retención para chats observados antes de uso con terceros.
 - [ ] Validar mediante QA real que third-party outbound permanece imposible.
