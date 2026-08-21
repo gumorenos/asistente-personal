@@ -24,18 +24,18 @@ export class RetentionRepository {
   purge(cutoffs: RetentionCutoffs): RetentionResult {
     this.database.native.exec('BEGIN IMMEDIATE');
     try {
-      const messages = this.database.native
+      const messages = Number(this.database.native
         .prepare('DELETE FROM messages WHERE timestamp < ?')
-        .run(cutoffs.messageBeforeEpochSeconds).changes;
-      const outbound = this.database.native
+        .run(cutoffs.messageBeforeEpochSeconds).changes);
+      const outbound = Number(this.database.native
         .prepare('DELETE FROM assistant_outbound WHERE created_at < datetime(?)')
-        .run(cutoffs.outboundBeforeIso).changes;
-      const audit = this.database.native
+        .run(cutoffs.outboundBeforeIso).changes);
+      const audit = Number(this.database.native
         .prepare('DELETE FROM audit_log WHERE created_at < datetime(?)')
-        .run(cutoffs.auditBeforeIso).changes;
-      const briefings = this.database.native
+        .run(cutoffs.auditBeforeIso).changes);
+      const briefings = Number(this.database.native
         .prepare('DELETE FROM briefing_deliveries WHERE datetime(delivered_at) < datetime(?)')
-        .run(cutoffs.briefingBeforeIso).changes;
+        .run(cutoffs.briefingBeforeIso).changes);
       this.database.native.exec('COMMIT');
       return { messages, outbound, audit, briefings };
     } catch (error) {
