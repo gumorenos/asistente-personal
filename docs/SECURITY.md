@@ -87,7 +87,7 @@ Observer introduce lectura limitada de chats de terceros/grupos, pero **no intro
 2. Activarlo exige `WHATSAPP_ENABLED=true` y al menos un self-JID administrativo explícito.
 3. Cada chat requiere además una fila `observed_chats.enabled=1`.
 4. El self-chat route y Observer route son mutuamente excluyentes.
-5. `ObserverService` no recibe `MessageTransport`, `AssistantCore`, capabilities ni providers externos.
+5. `ObserverService` no recibe `MessageTransport`, `AssistantCore`, capabilities de acciones ni providers externos.
 6. `SqliteObservationSink` usa una tabla `observations` separada de `messages`.
 7. Solo se acepta `kind=text`, entre 1 y 4.000 caracteres.
 8. El route Observer nunca adjunta `loadMedia()`; audio/imágenes/documentos/video no se descargan.
@@ -116,6 +116,23 @@ Observer introduce lectura limitada de chats de terceros/grupos, pero **no intro
 9. Con `RETENTION_ENABLED=true`, el store se purga usando `MESSAGE_RETENTION_DAYS`.
 10. Resend/missing-message recovery no se considera validado hasta QA con una sesión WhatsApp real.
 
+## Stage 3 — local memory/search rules
+
+1. **Physically separate indexes.** `self_memory_fts` y `observation_fts` son tablas FTS5 distintas; la búsqueda personal nunca consulta el índice Observer.
+2. **Authorized personal sources only.** `self_memory_fts` contiene mensajes que ya pasaron el self-chat guard, notas, recordatorios y gastos locales.
+3. **Observer remains exact-JID.** `ObserverSearchCapability` exige un JID válido ya presente en `observed_chats` y añade `chat_jid = ?` además del `MATCH` FTS.
+4. **No global Observer search.** No existe endpoint/comando para consultar simultáneamente todos los chats observados.
+5. **Bounded literal FTS.** El compilador limita query/tokens y transforma el input en términos literales/prefix; no pasa operadores FTS suministrados por el usuario.
+6. **No AI/provider calls.** Search no usa IA, transcripción, Calendar, embeddings, OpenClaw ni otros agentes.
+7. **Audit minimization.** `memory.search`/`observer.search` guardan counts/tipo de scope/hash cuando corresponde, nunca query ni resultados.
+8. **Custom date privacy.** Las fechas concretas de `desde/hasta` se usan para filtrar localmente pero no se copian al metadata de audit; solo `temporalScope=custom`.
+9. **Filters narrow authority only.** Filtros de fuente y fecha solo reducen el conjunto ya autorizado; nunca incorporan otro dominio.
+10. **Timezone reuse.** `hoy/semana/mes` usa el mismo utilitario timezone-aware que gastos; no hay lógica de fecha paralela menos validada.
+11. **Retention synchronization.** Al eliminar messages/observations base, triggers eliminan sus entradas FTS; no quedan resultados huérfanos de esos dominios.
+12. **Current command exclusion.** La búsqueda personal excluye por `message_id` el comando `busca ...` que acaba de persistirse.
+13. **Bounded output.** La capability actual devuelve máximo 5 resultados y limita/trunca el texto total.
+14. **Observer temporal expansion deferred.** Stage 3 no agrega rangos temporales a Observer; el boundary permanece deliberadamente más estrecho.
+
 ## Important limitations
 
 Baileys usa el protocolo de WhatsApp Web y no la API oficial de Meta WhatsApp Business. Existe riesgo de rotura de protocolo, restricciones de cuenta y diferencias PN/LID que requieren QA real.
@@ -128,23 +145,23 @@ Observer puede almacenar contenido de terceros cuando está activado y el chat f
 
 Tratar como secretos:
 
-- `data/assistant.db`, WAL/SHM y backups; incluye auth, self-chat retry contents y, si Observer está activo, observations;
+- `data/assistant.db`, WAL/SHM y backups; incluye auth, self-chat retry contents, índices FTS y, si Observer está activo, observations;
 - `.env`;
 - pairing codes;
 - `AI_API_KEY`;
 - `TRANSCRIPTION_API_KEY`;
 - `GOOGLE_CALENDAR_CLIENT_SECRET`;
 - `GOOGLE_CALENDAR_REFRESH_TOKEN`;
-- cualquier backup que contenga `observations` o `whatsapp_message_store`.
+- cualquier backup que contenga `observations`, `observation_fts`, `self_memory_fts` o `whatsapp_message_store`.
 
 ## Permission levels
 
-- **Level 0:** lectura/resumen local del propio estado.
+- **Level 0:** lectura/búsqueda/resumen local del propio estado.
 - **Level 1:** notas, reminders y gastos locales.
 - **Level 1E:** envío externo explícito de texto/audio para obtener respuesta sin acciones.
-- **Level 1O:** Observer read-only: persistencia local minimizada de chats expresamente allowlisted; cero outbound.
+- **Level 1O:** Observer read-only: persistencia/búsqueda local minimizada de chats expresamente allowlisted; cero outbound.
 - **Level 1P:** propuesta/consentimiento local de una acción externa.
 - **Level 2:** modificación externa como Google Calendar; requiere enable explícito + approval + ejecución separada + revalidación + idempotencia.
 - **Level 3:** comunicación a terceros. **No implementada.**
 
-El Stage 2 actual implementa hasta Level 2 para Calendar bajo doble acto explícito. Observer permanece Level 1O y no habilita Level 3.
+El sistema actual implementa hasta Level 2 para Calendar bajo doble acto explícito. Observer permanece Level 1O y no habilita Level 3.

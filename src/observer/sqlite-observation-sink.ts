@@ -1,5 +1,6 @@
 import type { AppDatabase } from '../database/db.ts';
 import { normalizeObservedJid } from '../database/observed-chat-repository.ts';
+import { compileFtsQuery } from '../search/fts-query.ts';
 import type { ObservationRecord, ObservationSink } from './types.ts';
 
 export interface StoredObservation extends ObservationRecord {
@@ -63,6 +64,27 @@ export class SqliteObservationSink implements ObservationSink {
         LIMIT ?
       `)
       .all(chatJid, limit) as unknown as RawObservationRow[];
+    return rows.map(mapRow);
+  }
+
+  search(chatJidInput: string, query: string, limit = 5): StoredObservation[] {
+    const chatJid = normalizeObservedJid(chatJidInput);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error('Invalid observation search limit');
+    const compiled = compileFtsQuery(query);
+    if (!compiled) return [];
+
+    const rows = this.database.native.prepare(`
+      SELECT o.chat_jid, o.message_id, o.sender_id, o.timestamp, o.text, o.kind, o.is_group, o.created_at
+      FROM observation_fts
+      JOIN observations AS o
+        ON o.chat_jid = observation_fts.chat_jid
+       AND o.message_id = observation_fts.message_id
+      WHERE observation_fts MATCH ?
+        AND observation_fts.chat_jid = ?
+      ORDER BY bm25(observation_fts), o.timestamp DESC, o.message_id DESC
+      LIMIT ?
+    `).all(compiled.expression, chatJid, limit) as unknown as RawObservationRow[];
+
     return rows.map(mapRow);
   }
 

@@ -12,8 +12,10 @@ import { BriefingCapability } from './capabilities/briefing-capability.ts';
 import { CalendarExecutionCapability } from './capabilities/calendar-execution-capability.ts';
 import { CalendarProposalCapability } from './capabilities/calendar-proposal-capability.ts';
 import { LocalCapabilities } from './capabilities/local-capabilities.ts';
+import { MemorySearchCapability } from './capabilities/memory-search-capability.ts';
 import { ObserverAdminCapability } from './capabilities/observer-admin-capability.ts';
 import { ObserverReadCapability } from './capabilities/observer-read-capability.ts';
+import { ObserverSearchCapability } from './capabilities/observer-search-capability.ts';
 import type { Capability } from './capabilities/types.ts';
 import { loadConfig } from './config.ts';
 import { AssistantCore } from './core/assistant.ts';
@@ -25,6 +27,7 @@ import { AuditRepository } from './database/audit-repository.ts';
 import { BriefingDeliveryRepository } from './database/briefing-delivery-repository.ts';
 import { AppDatabase } from './database/db.ts';
 import { ExpenseRepository } from './database/expense-repository.ts';
+import { LocalMemorySearchRepository } from './database/local-memory-search-repository.ts';
 import { MessageRepository } from './database/message-repository.ts';
 import { NoteRepository } from './database/note-repository.ts';
 import { ObservedChatRepository } from './database/observed-chat-repository.ts';
@@ -56,6 +59,7 @@ const observedChats = new ObservedChatRepository(database);
 const observationSink = new SqliteObservationSink(database);
 const observerService = new ObserverService(observedChats, observationSink);
 const retention = new RetentionRepository(database);
+const memorySearch = new LocalMemorySearchRepository(database);
 const briefingService = new BriefingService(notes, reminders, expenses, actions, config.timeZone);
 
 let transport: MessageTransport;
@@ -135,7 +139,9 @@ const capabilities: Capability[] = [
   new LocalCapabilities(notes, reminders, expenses, audit, config.timeZone),
   new BriefingCapability(briefingService),
   new ObserverAdminCapability(observedChats, audit, config.observer.enabled),
+  new ObserverSearchCapability(observedChats, observationSink, audit, config.timeZone),
   new ObserverReadCapability(observedChats, observationSink, audit, config.timeZone),
+  new MemorySearchCapability(memorySearch, audit, config.timeZone),
   new CalendarProposalCapability(actions, audit, config.timeZone),
   new ActionApprovalCapability(actions, audit),
   new CalendarExecutionCapability(config.calendar.enabled, calendarExecutor),
@@ -185,6 +191,8 @@ try {
     observerEnabled: config.observer.enabled,
     observedChatAllowlistCount: observedChats.listEnabled().length,
     observerStorage: config.observer.enabled ? 'sqlite-text-only' : 'disabled',
+    localMemorySearch: 'sqlite-fts5-explicit-only',
+    observerSearch: 'sqlite-fts5-exact-jid-explicit-only',
     retentionEnabled: config.retention.enabled,
     retentionPolicy: config.retention.enabled ? {
       messageDays: config.retention.messageDays,

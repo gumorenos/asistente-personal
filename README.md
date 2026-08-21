@@ -12,6 +12,7 @@ Asistente personal autónomo con WhatsApp como interfaz inicial. El núcleo func
 - **Stage 2E:** briefing personal y retención operacional implementados, ambos opt-in donde corresponde.
 - **Stage 2F:** Observer text-only/read-only + lectura local explícita implementados detrás de límites estrictos; QA WhatsApp real pendiente.
 - **Stage 2G:** persistent Baileys `getMessage`/retry store implementado y PN/LID-aware; recovery real resend/missing-message pendiente de sesión WhatsApp QA.
+- **Stage 3:** memoria/búsqueda local FTS5 implementada sobre mensajes, notas, recordatorios y gastos; búsqueda Observer permanece físicamente separada y exact-JID only.
 
 Ningún check manual se considera aprobado por los tests automatizados. La fuente de verdad sigue siendo [`docs/QA-PENDING.md`](docs/QA-PENDING.md).
 
@@ -23,10 +24,12 @@ Ningún check manual se considera aprobado por los tests automatizados. La fuent
 - aprobar una acción no la ejecuta;
 - Calendar requiere `CALENDAR_ENABLED=true`, acción aprobada y luego `ejecuta acción #N`;
 - Observer solo persiste texto de JIDs explícitamente allowlisted;
-- Observer no recibe `AssistantCore`, `MessageTransport`, capabilities ni providers externos;
+- Observer no recibe `AssistantCore`, `MessageTransport`, capabilities de acciones ni providers externos;
 - Observer no puede responder a terceros/grupos ni crear acciones;
 - media Observer no se descarga;
-- lectura Observer requiere un comando explícito desde el self-chat, JID exacto y máximo 10 filas;
+- lectura/búsqueda Observer exige un comando explícito desde el self-chat y JID exacto conocido;
+- `self_memory_fts` y `observation_fts` son índices separados;
+- ninguna búsqueda Stage 3 llama IA ni envía la query/resultados a providers externos;
 - el retry store de Baileys solo guarda contenido protobuf de self-chat autorizado/outbound, nunca Observer/ignored;
 - el retry store conserva alias PN/LID para resolver el mismo `message_id` por cualquiera de las dos identidades;
 - full history permanece deshabilitado.
@@ -57,6 +60,52 @@ cancela recordatorio #2
 
 briefing
 ```
+
+## Memoria/búsqueda local — Stage 3
+
+La búsqueda es local y explícita. No usa embeddings ni IA.
+
+```text
+busca filtro de agua
+busca notas presupuesto
+busca mensajes proyecto orion
+busca recordatorios visa
+busca gastos taxi
+busca gastos hoy taxi
+busca recordatorios semana banco
+busca notas mes presupuesto
+busca desde 2026-08-01 hasta 2026-08-20 proyecto
+busca gastos desde 2026-08-01 hasta 2026-08-20 taxi
+```
+
+Fuentes de la memoria personal:
+
+- mensajes que ya pasaron el self-chat guard;
+- notas;
+- recordatorios;
+- gastos.
+
+Reglas:
+
+- SQLite FTS5 local con matching Unicode/prefijos;
+- query máxima 200 caracteres / 8 tokens;
+- sintaxis FTS cruda no se ejecuta;
+- máximo 5 resultados por comando actual;
+- el propio mensaje `busca ...` se excluye por `message_id`;
+- `hoy`, `semana` y `mes` respetan `APP_TIMEZONE`;
+- `desde YYYY-MM-DD hasta YYYY-MM-DD` es inclusivo para el usuario;
+- audit guarda solo metadata estructural/counts, nunca query ni resultados.
+
+Observer usa otro índice y otro comando:
+
+```text
+busca observaciones 519XXXXXXXX@s.whatsapp.net contrato
+busca observaciones 120363XXXXXXXX@g.us presupuesto
+```
+
+No existe búsqueda Observer global: siempre exige un JID exacto ya conocido en `observed_chats`.
+
+Ver [`docs/STAGE-3-LOCAL-SEARCH.md`](docs/STAGE-3-LOCAL-SEARCH.md).
 
 ## IA explícita — Stage 2A
 
@@ -130,7 +179,7 @@ BRIEFING_DESTINATION_JID=
 
 ## Retención operacional — Stage 2E
 
-Opt-in. Purga normalized self-chat messages, el store `whatsapp_message_store`, outbound IDs, audit y briefing-delivery rows. El retry store usa la misma ventana `MESSAGE_RETENTION_DAYS`. No borra notas, gastos, recordatorios, actions, allowlists ni credenciales.
+Opt-in. Purga normalized self-chat messages, el store `whatsapp_message_store`, outbound IDs, audit y briefing-delivery rows. El retry store usa la misma ventana `MESSAGE_RETENTION_DAYS`. Cuando un mensaje u observación base se purga, sus triggers eliminan también la entrada FTS correspondiente.
 
 ```env
 RETENTION_ENABLED=false
@@ -157,24 +206,8 @@ observa chat 120363XXXXXXXX@g.us como Familia
 chats observados
 observaciones 519XXXXXXXX@s.whatsapp.net
 observaciones 120363XXXXXXXX@g.us 10
+busca observaciones 519XXXXXXXX@s.whatsapp.net contrato
 deja de observar 519XXXXXXXX@s.whatsapp.net
-```
-
-`observaciones <jid> [1-10]`:
-
-- exige JID exacto conocido administrativamente;
-- default 5 filas, máximo 10;
-- no busca ni resume otros chats;
-- compacta/trunca cada fila y limita la respuesta total a 3.500 caracteres;
-- funciona únicamente por petición explícita del self-chat;
-- no usa IA;
-- audit guarda hash del JID + counts, no contenido/JID/label crudos;
-- puede consultar filas retenidas de un chat ya deshabilitado hasta que la retención las elimine.
-
-Configuración:
-
-```env
-OBSERVER_ENABLED=false
 ```
 
 Observer initial:
@@ -187,27 +220,25 @@ Observer initial:
 - no media download;
 - no IA/transcripción automática;
 - no Calendar/actions;
-- no replies a terceros/grupos.
+- no replies a terceros/grupos;
+- búsqueda FTS separada, exact-JID only, sin búsqueda global.
 
 Ver contrato completo en [`docs/OBSERVER-FOUNDATION.md`](docs/OBSERVER-FOUNDATION.md).
 
 ## Baileys retry/recovery — Stage 2G
 
-Baileys requiere un `getMessage(key)` respaldado por el store de la aplicación para retries y determinados message updates. La app ahora usa una tabla SQLite dedicada `whatsapp_message_store`:
+Baileys dispone de un `getMessage(key)` respaldado por SQLite:
 
-- migración v10 crea el store base;
-- migración v11 añade `remote_jid_alt` e índice para aliases PN/LID;
-- key primaria `(remote_jid,message_id)` y lookup seguro por primary/alt + el mismo `message_id`;
+- migración v10 crea `whatsapp_message_store`;
+- migración v11 añade `remote_jid_alt` e índice PN/LID;
+- lookup por primary/alt + el mismo `message_id`;
 - persiste únicamente `IMessage` serializado con `BufferJSON`;
-- guarda inmediatamente respuestas retornadas por `sendMessage`;
-- guarda inbound solo después de resolver self-chat autorizado;
-- Observer, grupos/terceros no autorizados e ignored traffic retornan antes del write;
-- `getMessage` recupera por JID + message ID exactos, aceptando el alias PN/LID conocido para ese mismo registro;
-- un resend que invierta PN/LID actualiza la misma fila, sin duplicarla ni perder el alias;
-- upsert idempotente;
-- con retención habilitada sigue `MESSAGE_RETENTION_DAYS`.
+- outbound solo tras `sendMessage` exitoso;
+- inbound solo después de resolver self-chat autorizado;
+- Observer/ignored traffic no entra al store;
+- retención usa `MESSAGE_RETENTION_DAYS`.
 
-Esto cierra el gap de implementación que devolvía siempre `undefined`, pero **no sustituye QA live**: resend/missing-message recovery y PN/LID reales deben validarse con una sesión WhatsApp real.
+Esto cierra el gap de implementación, pero resend/missing-message recovery y PN/LID reales siguen pendientes de QA live.
 
 ## Desarrollo local
 
@@ -239,14 +270,15 @@ CI valida tests/typecheck/audit y builds `linux/amd64` + `linux/arm64`.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - [`docs/SECURITY.md`](docs/SECURITY.md)
 - [`docs/OBSERVER-FOUNDATION.md`](docs/OBSERVER-FOUNDATION.md)
+- [`docs/STAGE-3-LOCAL-SEARCH.md`](docs/STAGE-3-LOCAL-SEARCH.md)
 - [`docs/QA-PENDING.md`](docs/QA-PENDING.md)
 
 ## Próximos bloques
 
-1. cerrar QA real de Stage 1/2 sin marcarlo aprobado artificialmente;
-2. validar `getMessage`/resend/missing-message recovery y aliases PN/LID live con una sesión WhatsApp QA;
-3. evaluar búsqueda local por keyword sobre un único JID con límites estrictos, sin IA automática;
-4. memoria/búsqueda y documentos con boundaries de privacidad propios;
+1. mantener acumulado el QA real de WhatsApp/RPi/Google/proveedores sin marcarlo aprobado artificialmente;
+2. validar `getMessage`/resend/missing-message recovery y aliases PN/LID live cuando dispongamos del entorno QA;
+3. Stage 4: documentos del self-chat con ingestion/extraction explícita y límites de privacidad;
+4. evaluar búsqueda semántica/embeddings solo si FTS5 demuestra una limitación real;
 5. integraciones opcionales con OpenClaw, Claude Code, Codex u otros agentes si aportan valor.
 
 ## Aviso
