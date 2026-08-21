@@ -4,7 +4,7 @@
 
 Construir un asistente personal cuyo primer transporte sea WhatsApp sin convertir OpenClaw, Claude Code, Codex ni ningún framework de agentes en una dependencia del producto.
 
-## Current Stage 2 data flow
+## Current data flow
 
 ```text
 WhatsApp / Baileys live messages.upsert
@@ -25,16 +25,25 @@ retry store write          ObserverService
       v                         v
 AssistantCore             SqliteObservationSink
       |                         |
-      |                         v
-      |                    observations
+      |                         +--> observations
+      |                         +--> observation_fts
+      |                                  |
+      |                          ObserverSearchCapability
+      |                          exact known JID only
       |
       +--> MessageRepository ----------------------> SQLite
+      |           |
+      |           +--> self_memory_fts
       |
       +--> Capability[] ordered
              |
              +--> LocalCapabilities --------------> notes/reminders/expenses/audit
+             |                                          |
+             |                                          +--> self_memory_fts
+             +--> MemorySearchCapability ----------> self_memory_fts
              +--> BriefingCapability -------------> local state only
              +--> ObserverAdminCapability --------> observed_chats
+             +--> ObserverRead/SearchCapability --> observations / observation_fts
              +--> CalendarProposalCapability -----> action_requests/pending
              +--> ActionApprovalCapability -------> approved/rejected
              +--> CalendarExecutionCapability ----> CalendarActionExecutor
@@ -45,7 +54,7 @@ AssistantCore             SqliteObservationSink
              +--> AiCapability (`ia`) ------------> AiProvider
 ```
 
-Los caminos self-chat y Observer son mutuamente excluyentes. Observer nunca entra a `AssistantCore` ni al Baileys retry store.
+Los caminos self-chat y Observer son mutuamente excluyentes. Observer nunca entra a `AssistantCore` ni al Baileys retry store. Sus índices de búsqueda también están separados.
 
 ## MessageTransport boundary
 
@@ -67,7 +76,7 @@ Esto evita, por ejemplo:
 - que una respuesta IA se convierta en comando;
 - que una transcripción cree una nota/acción automáticamente;
 - que aprobar una propuesta ejecute Calendar por sí solo;
-- que contenido Observer llegue a capabilities.
+- que contenido Observer llegue a capabilities de acciones.
 
 ## Stage 2A — AI provider boundary
 
@@ -150,7 +159,7 @@ Una ejecución reciente `started` actúa como lease contra concurrencia. Una lea
 - audit;
 - briefing delivery ledger.
 
-No toca dominio ni credenciales.
+Los triggers Stage 3 eliminan automáticamente las entradas FTS asociadas cuando se elimina un mensaje/observación base.
 
 ## Stage 2F — Observer read-only boundary
 
@@ -163,7 +172,7 @@ Observer requiere cuatro gates acumulativos:
 
 `ObserverService` solo acepta texto allowlisted. `SqliteObservationSink` vuelve a validar texto y usa la tabla dedicada `observations`, con PK `(chat_jid,message_id)`.
 
-No recibe `MessageTransport`, `AssistantCore`, capabilities, IA, transcripción ni Calendar. Por tanto no tiene una ruta para responder o ejecutar acciones.
+No recibe `MessageTransport`, `AssistantCore`, capabilities de acciones, IA, transcripción ni Calendar. Por tanto no tiene una ruta para responder o ejecutar acciones.
 
 `ObserverRetentionScheduler` aplica independientemente la ventana 1–90 días de cada chat.
 
@@ -196,20 +205,86 @@ IMessage
 
 Decisiones:
 
-- migración v10 crea la tabla dedicada;
-- migración v11 añade `remote_jid_alt` e índice PN/LID;
+- v10 crea la tabla dedicada;
+- v11 añade `remote_jid_alt` e índice PN/LID;
 - se persiste solo `WAMessage.message`, no todo el envelope/chat history;
-- serialización `BufferJSON` conserva `Buffer`/`Uint8Array` necesarios para contenido protobuf;
-- PK `(remote_jid,message_id)`, alias alternativo y upsert idempotente;
-- el lookup siempre exige el mismo `message_id` y una coincidencia primary/alt JID;
-- un mismo mensaje puede recuperarse por PN o LID, incluso si Baileys invierte primary/alt en un resend posterior;
-- outbound se persiste inmediatamente tras `sendMessage` exitoso;
+- serialización `BufferJSON` conserva datos binarios necesarios;
+- lookup siempre exige el mismo `message_id` y una coincidencia primary/alt JID;
+- outbound se persiste solo tras `sendMessage` exitoso;
 - inbound solo después de resolver self-chat autorizado;
-- Observer/ignored retornan antes y nunca se duplican en este store;
-- `getMessage` solo hace lookup local y no produce red;
-- cuando retención operacional está activa, usa `MESSAGE_RETENTION_DAYS`.
+- Observer/ignored nunca se duplican en este store;
+- retención usa `MESSAGE_RETENTION_DAYS`.
 
-La implementación cubre el requisito de store y alias; resend/missing-message recovery con PN/LID reales sigue siendo QA live, no una garantía derivada de tests unitarios.
+## Stage 3 — local memory/search boundary
+
+Stage 3 permanece completamente local y determinista.
+
+### v12 — physically separate indexes
+
+```text
+personal domain                            Observer domain
+---------------                            ---------------
+messages ----\                             observations
+notes --------> self_memory_fts            observed_chats guard
+                    |                            |
+                    v                            v
+          MemorySearchCapability           observation_fts
+                                                 |
+                                                 v
+                                      ObserverSearchCapability
+                                      exact known chat_jid
+```
+
+`self_memory_fts` y `observation_fts` son tablas virtuales FTS5 distintas. Ningún query SQL de memoria personal toca `observation_fts`.
+
+### v13 — structured personal sources
+
+`self_memory_fts` se amplía con:
+
+- `reminder`: body + fecha relevante `due_at` o creación;
+- `expense`: descripción + categoría + moneda + monto, con `occurred_at`.
+
+Los triggers mantienen el índice sincronizado con inserts/updates/deletes. Recategorizar un gasto, por ejemplo, sustituye sus términos indexados.
+
+### Query boundary
+
+`compileFtsQuery()`:
+
+- máximo 200 caracteres;
+- máximo 8 tokens Unicode alfanuméricos;
+- prefix matching literal;
+- nunca ejecuta sintaxis FTS cruda suministrada por el usuario.
+
+`MemorySearchCapability` puede reducir el resultado mediante:
+
+- fuente exacta: message/note/reminder/expense;
+- `hoy`, `semana`, `mes` usando `APP_TIMEZONE`;
+- custom range local `desde YYYY-MM-DD hasta YYYY-MM-DD`, convertido a intervalo `[start,endExclusive)`.
+
+Estos filtros solo estrechan el dominio autorizado; nunca agregan una fuente nueva.
+
+### Observer search boundary
+
+`ObserverSearchCapability` exige:
+
+- JID sintácticamente válido;
+- JID ya presente en `observed_chats`;
+- `MATCH` FTS + condición SQL exacta `chat_jid = ?`;
+- máximo 5 resultados de la capability actual.
+
+No existe global/cross-chat Observer search ni scope temporal Observer en Stage 3.
+
+### No provider boundary crossing
+
+Stage 3 no llama:
+
+- AI provider;
+- transcription provider;
+- Google Calendar;
+- embeddings/vector DB;
+- OpenClaw/Claude/Codex.
+
+El audit guarda solo metadata estructural/counts. No guarda query, resultados ni las fechas concretas de un custom range.
 
 ## Persistence
 
@@ -218,12 +293,14 @@ SQLite mantiene actualmente:
 - self-chat normalized messages y outbound IDs;
 - Baileys retry message contents (`whatsapp_message_store`) con alias PN/LID;
 - notes, reminders y expenses;
+- `self_memory_fts` para memoria personal;
 - audit;
 - Baileys auth state;
 - action requests y action execution ledger;
 - briefing delivery ledger;
 - observer allowlist;
-- text-only observations.
+- text-only observations;
+- `observation_fts` para búsqueda Observer exact-JID.
 
 Audio/transcription buffers no se persisten como archivos por la app. Prompts/respuestas IA no se almacenan en audit.
 
@@ -249,5 +326,7 @@ Los gates automatizados no sustituyen el QA real registrado en `docs/QA-PENDING.
 - IA automática sobre contenido Observer;
 - ingestión de media Observer;
 - full-history Observer;
-- documentos/RAG;
+- búsqueda Observer global;
+- embeddings/vector search/RAG;
+- documentos (Stage 4);
 - OpenClaw/Claude Code/Codex como dependencias del core.
