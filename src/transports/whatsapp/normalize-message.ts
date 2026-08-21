@@ -45,6 +45,13 @@ export function normalizeWhatsAppMessage(raw: WAMessage): IncomingMessage | unde
   const key = raw.key as WAMessage['key'] & { remoteJidAlt?: string };
   const audio = raw.message.audioMessage;
   const document = raw.message.documentMessage;
+  const mediaSizeBytes = audio
+    ? toOptionalNonNegativeInteger(audio.fileLength)
+    : document
+      ? toOptionalNonNegativeInteger(document.fileLength)
+      : undefined;
+  const mediaMimeType = audio?.mimetype ?? document?.mimetype ?? undefined;
+  const mediaFileName = document?.fileName ?? undefined;
 
   return {
     id,
@@ -56,12 +63,8 @@ export function normalizeWhatsAppMessage(raw: WAMessage): IncomingMessage | unde
     kind: detectKind(raw.message),
     fromMe: raw.key.fromMe === true,
     isGroup: chatId.endsWith('@g.us'),
-    mediaSizeBytes: audio
-      ? toOptionalNonNegativeInteger(audio.fileLength)
-      : document
-        ? toOptionalNonNegativeInteger(document.fileLength)
-        : undefined,
-    mediaMimeType: audio?.mimetype ?? document?.mimetype ?? undefined,
-    mediaFileName: document?.fileName ?? undefined,
+    mediaSizeBytes,
+    ...(mediaMimeType ? { mediaMimeType } : {}),
+    ...(mediaFileName ? { mediaFileName } : {}),
   };
 }
