@@ -1,7 +1,7 @@
 import type { AppDatabase } from './db.ts';
 import { compileFtsQuery } from '../search/fts-query.ts';
 
-export type LocalMemorySource = 'message' | 'note';
+export type LocalMemorySource = 'message' | 'note' | 'reminder' | 'expense';
 
 export interface LocalMemorySearchResult {
   source: LocalMemorySource;
@@ -13,6 +13,7 @@ export interface LocalMemorySearchResult {
 interface SearchOptions {
   limit?: number;
   excludeMessageId?: string;
+  source?: LocalMemorySource;
 }
 
 export class LocalMemorySearchRepository {
@@ -30,15 +31,19 @@ export class LocalMemorySearchRepository {
     if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error('Invalid local memory search limit');
 
     const excludeMessageId = options.excludeMessageId?.trim() || null;
+    const source = options.source ?? null;
     const rows = this.database.native.prepare(`
       SELECT source, source_id, CAST(occurred_at AS INTEGER) AS occurred_at, text
       FROM self_memory_fts
       WHERE self_memory_fts MATCH ?
+        AND (? IS NULL OR source = ?)
         AND (? IS NULL OR NOT (source = 'message' AND source_id = ?))
       ORDER BY bm25(self_memory_fts), CAST(occurred_at AS INTEGER) DESC
       LIMIT ?
     `).all(
       compiled.expression,
+      source,
+      source,
       excludeMessageId,
       excludeMessageId,
       limit,
