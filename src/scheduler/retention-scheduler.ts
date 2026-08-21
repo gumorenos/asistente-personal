@@ -57,7 +57,12 @@ export class RetentionScheduler {
       this.audit.record({
         eventType: 'retention.purged',
         entityType: 'retention',
-        metadata: result,
+        metadata: {
+          messages: result.messages,
+          outbound: result.outbound,
+          audit: result.audit,
+          briefings: result.briefings,
+        },
       });
       return result;
     } catch (error) {
