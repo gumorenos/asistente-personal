@@ -13,6 +13,7 @@ Asistente personal autónomo con WhatsApp como interfaz inicial. El núcleo func
 - **Stage 2F:** Observer text-only/read-only + lectura local explícita implementados detrás de límites estrictos; QA WhatsApp real pendiente.
 - **Stage 2G:** persistent Baileys `getMessage`/retry store implementado y PN/LID-aware; recovery real resend/missing-message pendiente de sesión WhatsApp QA.
 - **Stage 3:** memoria/búsqueda local FTS5 implementada sobre mensajes, notas, recordatorios y gastos; búsqueda Observer permanece físicamente separada y exact-JID only.
+- **Stage 4A:** ingestión local opt-in de PDFs con capa de texto implementada; binario efímero, texto extraído indexado como memoria local y OCR diferido a un stage posterior. QA PDF/WhatsApp real pendiente.
 
 Ningún check manual se considera aprobado por los tests automatizados. La fuente de verdad sigue siendo [`docs/QA-PENDING.md`](docs/QA-PENDING.md).
 
@@ -29,7 +30,11 @@ Ningún check manual se considera aprobado por los tests automatizados. La fuent
 - media Observer no se descarga;
 - lectura/búsqueda Observer exige un comando explícito desde el self-chat y JID exacto conocido;
 - `self_memory_fts` y `observation_fts` son índices separados;
-- ninguna búsqueda Stage 3 llama IA ni envía la query/resultados a providers externos;
+- ninguna búsqueda local llama IA ni envía la query/resultados a providers externos;
+- documentos se descargan solo después de pasar el self-chat guard;
+- un documento es terminal antes de los parsers de comandos: su caption o texto nunca ejecuta `anota`, `agenda`, etc.;
+- PDFs se validan por tamaño, MIME y magic header antes de extracción;
+- el PDF binario no se persiste; solo texto extraído + metadata mínima entran a SQLite;
 - el retry store de Baileys solo guarda contenido protobuf de self-chat autorizado/outbound, nunca Observer/ignored;
 - el retry store conserva alias PN/LID para resolver el mismo `message_id` por cualquiera de las dos identidades;
 - full history permanece deshabilitado.
@@ -59,6 +64,10 @@ completa recordatorio #1
 cancela recordatorio #2
 
 briefing
+
+documentos
+documento #1
+busca documentos contrato
 ```
 
 ## Memoria/búsqueda local — Stage 3
@@ -83,7 +92,8 @@ Fuentes de la memoria personal:
 - mensajes que ya pasaron el self-chat guard;
 - notas;
 - recordatorios;
-- gastos.
+- gastos;
+- documentos PDF previamente indexados en Stage 4A.
 
 Reglas:
 
@@ -106,6 +116,42 @@ busca observaciones 120363XXXXXXXX@g.us presupuesto
 No existe búsqueda Observer global: siempre exige un JID exacto ya conocido en `observed_chats`.
 
 Ver [`docs/STAGE-3-LOCAL-SEARCH.md`](docs/STAGE-3-LOCAL-SEARCH.md).
+
+## PDFs locales — Stage 4A
+
+Stage 4A procesa únicamente documentos PDF del self-chat autorizado y está apagado por defecto.
+
+```env
+DOCUMENTS_ENABLED=false
+DOCUMENTS_MAX_BYTES=10485760
+DOCUMENTS_MAX_PAGES=50
+DOCUMENTS_MAX_TEXT_CHARS=100000
+DOCUMENTS_TIMEOUT_MS=20000
+```
+
+Flujo de seguridad:
+
+1. si está deshabilitado, el documento no se descarga;
+2. tamaño declarado y MIME se validan antes del download;
+3. tamaño real, MIME y `%PDF-` se revalidan después del download;
+4. `pdfinfo` valida número de páginas;
+5. `pdftotext` extrae localmente con timeout y output acotado;
+6. el binario se elimina tras la extracción y no se guarda en SQLite;
+7. solo texto extraído + metadata mínima se persisten e indexan como `document`;
+8. un PDF sin capa de texto no se guarda y queda como candidato futuro a OCR;
+9. no se llama IA, no se generan acciones y contenido Observer nunca obtiene loader documental.
+
+Comandos:
+
+```text
+documentos
+documento #1
+busca documentos contrato
+busca documentos mes presupuesto
+busca documentos desde 2026-08-01 hasta 2026-08-21 factura
+```
+
+El runtime Docker incluye `poppler-utils`. Ver [`docs/STAGE-4-DOCUMENTS.md`](docs/STAGE-4-DOCUMENTS.md).
 
 ## IA explícita — Stage 2A
 
@@ -181,6 +227,8 @@ BRIEFING_DESTINATION_JID=
 
 Opt-in. Purga normalized self-chat messages, el store `whatsapp_message_store`, outbound IDs, audit y briefing-delivery rows. El retry store usa la misma ventana `MESSAGE_RETENTION_DAYS`. Cuando un mensaje u observación base se purga, sus triggers eliminan también la entrada FTS correspondiente.
 
+Los documentos Stage 4A son estado de dominio y no se purgan con esta retención operacional; una política documental específica deberá definirse antes de uso diario con material sensible.
+
 ```env
 RETENTION_ENABLED=false
 MESSAGE_RETENTION_DAYS=30
@@ -218,7 +266,7 @@ Observer initial:
 - idempotencia `(chat_jid,message_id)`;
 - retención por chat de 1–90 días, default 7;
 - no media download;
-- no IA/transcripción automática;
+- no IA/transcripción/document extraction automática;
 - no Calendar/actions;
 - no replies a terceros/grupos;
 - búsqueda FTS separada, exact-JID only, sin búsqueda global.
@@ -242,7 +290,7 @@ Esto cierra el gap de implementación, pero resend/missing-message recovery y PN
 
 ## Desarrollo local
 
-Requisitos: Node 22.18+.
+Requisitos: Node 22.18+. Para habilitar Stage 4A fuera de Docker también se requieren `pdfinfo` y `pdftotext` de Poppler.
 
 ```bash
 cp .env.example .env
@@ -263,7 +311,7 @@ curl http://127.0.0.1:8787/healthz
 curl http://127.0.0.1:8787/readyz
 ```
 
-CI valida tests/typecheck/audit y builds `linux/amd64` + `linux/arm64`.
+CI valida tests/typecheck/audit, builds `linux/amd64` + `linux/arm64` y disponibilidad de `pdfinfo`/`pdftotext` en ambas imágenes.
 
 ## Documentación
 
@@ -271,16 +319,18 @@ CI valida tests/typecheck/audit y builds `linux/amd64` + `linux/arm64`.
 - [`docs/SECURITY.md`](docs/SECURITY.md)
 - [`docs/OBSERVER-FOUNDATION.md`](docs/OBSERVER-FOUNDATION.md)
 - [`docs/STAGE-3-LOCAL-SEARCH.md`](docs/STAGE-3-LOCAL-SEARCH.md)
+- [`docs/STAGE-4-DOCUMENTS.md`](docs/STAGE-4-DOCUMENTS.md)
 - [`docs/QA-PENDING.md`](docs/QA-PENDING.md)
 
 ## Próximos bloques
 
 1. mantener acumulado el QA real de WhatsApp/RPi/Google/proveedores sin marcarlo aprobado artificialmente;
-2. validar `getMessage`/resend/missing-message recovery y aliases PN/LID live cuando dispongamos del entorno QA;
-3. Stage 4: documentos del self-chat con ingestion/extraction explícita y límites de privacidad;
-4. evaluar búsqueda semántica/embeddings solo si FTS5 demuestra una limitación real;
-5. integraciones opcionales con OpenClaw, Claude Code, Codex u otros agentes si aportan valor.
+2. validar Stage 4A con Poppler real + PDF con texto y, cuando exista sesión WhatsApp QA, descarga documental live;
+3. definir política específica de retención/borrado para documentos antes de uso sensible cotidiano;
+4. Stage 4B: evaluar OCR local para PDFs escaneados/imágenes sin ampliar Observer ni permitir ejecución automática;
+5. evaluar búsqueda semántica/embeddings solo si FTS5 demuestra una limitación real;
+6. integraciones opcionales con OpenClaw, Claude Code, Codex u otros agentes si aportan valor.
 
 ## Aviso
 
-Baileys interactúa con WhatsApp Web y no es la API oficial de WhatsApp Business. El proyecto es para uso personal y conservador. Observer puede almacenar contenido de terceros cuando está activado y el chat fue autorizado; antes de usarlo con conversaciones reales deben revisarse necesidad, consentimiento aplicable, minimización y retención. No debe usarse para spam, outreach automatizado, vigilancia abusiva ni mensajería masiva.
+Baileys interactúa con WhatsApp Web y no es la API oficial de WhatsApp Business. El proyecto es para uso personal y conservador. Observer puede almacenar contenido de terceros cuando está activado y el chat fue autorizado; antes de usarlo con conversaciones reales deben revisarse necesidad, consentimiento aplicable, minimización y retención. Los documentos personales pueden contener información especialmente sensible y deben tratarse como estado persistente protegido. No debe usarse para spam, outreach automatizado, vigilancia abusiva ni mensajería masiva.
