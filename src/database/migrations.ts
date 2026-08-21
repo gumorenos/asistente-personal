@@ -180,6 +180,22 @@ const MIGRATIONS: Array<{ version: number; sql: string }> = [
         ON observations(chat_jid, timestamp DESC);
     `,
   },
+  {
+    version: 10,
+    sql: `
+      CREATE TABLE IF NOT EXISTS whatsapp_message_store (
+        remote_jid TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        content_json TEXT NOT NULL,
+        from_me INTEGER NOT NULL CHECK (from_me IN (0,1)),
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (remote_jid, message_id)
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS idx_whatsapp_message_store_updated
+        ON whatsapp_message_store(updated_at);
+    `,
+  },
 ];
 
 export function runMigrations(db: DatabaseSync): void {
