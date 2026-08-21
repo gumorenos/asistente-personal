@@ -48,8 +48,10 @@ export class RetentionScheduler {
     try {
       const now = this.now();
       const dayMs = 24 * 60 * 60 * 1_000;
+      const messageCutoff = new Date(now.getTime() - this.policy.messageDays * dayMs);
       const result = this.retention.purge({
-        messageBeforeEpochSeconds: Math.floor((now.getTime() - this.policy.messageDays * dayMs) / 1_000),
+        messageBeforeEpochSeconds: Math.floor(messageCutoff.getTime() / 1_000),
+        whatsappBeforeIso: messageCutoff.toISOString(),
         outboundBeforeIso: new Date(now.getTime() - this.policy.outboundDays * dayMs).toISOString(),
         auditBeforeIso: new Date(now.getTime() - this.policy.auditDays * dayMs).toISOString(),
         briefingBeforeIso: new Date(now.getTime() - this.policy.briefingDays * dayMs).toISOString(),
@@ -59,6 +61,7 @@ export class RetentionScheduler {
         entityType: 'retention',
         metadata: {
           messages: result.messages,
+          whatsappMessages: result.whatsappMessages,
           outbound: result.outbound,
           audit: result.audit,
           briefings: result.briefings,
