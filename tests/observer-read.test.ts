@@ -86,6 +86,28 @@ test('observer read rejects oversized row count and bounds individual text', asy
   db.close();
 });
 
+test('observer read enforces a strict total reply bound', async () => {
+  const { db, chats, sink, capability } = setup();
+  const jid = '120363123456789@g.us';
+  chats.enable(jid, 'Grupo con salida extensa');
+  for (let index = 0; index < 10; index += 1) {
+    sink.save({
+      messageId: `long-${index}`,
+      chatJid: jid,
+      senderId: `${'9'.repeat(180)}@lid`,
+      timestamp: 1_777_000_000 + index,
+      text: `fila-${index} ${'x'.repeat(500)}`,
+      kind: 'text',
+      isGroup: true,
+    });
+  }
+
+  const reply = (await capability.handle(message(`observaciones ${jid} 10`)))?.reply ?? '';
+  assert.ok(reply.length <= 3_500);
+  assert.match(reply, /salida truncada/);
+  db.close();
+});
+
 test('observer read can inspect retained rows after chat is disabled but reports the state', async () => {
   const { db, chats, sink, capability } = setup();
   const jid = '51922222222@s.whatsapp.net';
