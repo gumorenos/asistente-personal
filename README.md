@@ -1,87 +1,62 @@
 # Asistente Personal
 
-Asistente personal autónomo con WhatsApp como interfaz inicial. El núcleo funciona sin OpenClaw, Claude Code, Codex ni otros agentes externos; cualquier integración de ese tipo será opcional y desacoplada.
+Asistente personal autónomo con WhatsApp como interfaz inicial. El núcleo funciona sin OpenClaw, Claude Code, Codex ni otros agentes externos; cualquier integración de ese tipo seguirá siendo opcional y desacoplada.
 
 ## Estado
 
-- **Stage 1:** desarrollo cerrado; QA real de WhatsApp/RPi pendiente.
+- **Stage 1:** self-chat/local core cerrado a nivel de desarrollo; QA real WhatsApp/RPi pendiente.
 - **Stage 2A:** IA opcional explícita implementada; QA del proveedor real pendiente.
-- **Stage 2B:** transcripción de audio opcional implementada; QA con audio/proveedor real pendiente.
-- **Stage 2C:** propuestas de Calendar + aprobación/rechazo local implementadas; **sin writes a Google todavía**.
+- **Stage 2B:** transcripción opcional implementada; QA con audio/proveedor real pendiente.
+- **Stage 2C:** propuestas Calendar + aprobación/rechazo local implementadas.
+- **Stage 2D:** ejecución Google Calendar implementada detrás de enable + aprobación + ejecución explícita; QA Google real pendiente.
+- **Stage 2E:** briefing personal y retención operacional implementados, ambos opt-in donde corresponde.
+- **Stage 2F:** Observer text-only/read-only implementado detrás de `OBSERVER_ENABLED=false`; QA WhatsApp real pendiente.
 
-El desarrollo posterior puede continuar sin marcar como aprobados los checks manuales de [`docs/QA-PENDING.md`](docs/QA-PENDING.md).
+Ningún check manual se considera aprobado por los tests automatizados. La fuente de verdad sigue siendo [`docs/QA-PENDING.md`](docs/QA-PENDING.md).
 
-## Stage 1 — capacidades locales
+## Principios de seguridad
 
-- self-chat seguro con allowlist PN/LID;
-- SQLite y auth state de Baileys;
-- notas, gastos y recordatorios;
-- scheduler con retry;
-- audit local;
-- health/readiness;
-- CI reproducible y Docker amd64/arm64.
+- self-chat y Observer tienen rutas distintas y mutuamente excluyentes;
+- `sendText()` solo acepta destinos incluidos en `WHATSAPP_SELF_JIDS`;
+- IA/transcripción no ejecutan comandos;
+- aprobar una acción no la ejecuta;
+- Calendar requiere `CALENDAR_ENABLED=true`, acción aprobada y luego `ejecuta acción #N`;
+- Observer solo persiste texto de JIDs explícitamente allowlisted;
+- Observer no recibe `AssistantCore`, `MessageTransport`, capabilities ni providers externos;
+- Observer no puede responder a terceros/grupos ni crear acciones;
+- media Observer no se descarga;
+- full history permanece deshabilitado.
 
-## Stage 2A — IA explícita
-
-- `Capability` y `AiProvider` desacoplados;
-- OpenAI-compatible `/chat/completions` con `fetch` nativo;
-- `AI_ENABLED=false` por defecto;
-- solo `ia <pregunta>` / `ai <pregunta>` sale al proveedor;
-- no se envían historial, notas, gastos ni recordatorios;
-- no hay tool/function calling ni ejecución de acciones;
-- HTTPS remoto, límites, timeout y audit sin prompt/respuesta.
-
-## Stage 2B — transcripción de audio
-
-- `TranscriptionProvider` desacoplado;
-- OpenAI-compatible `/audio/transcriptions` multipart;
-- `TRANSCRIPTION_ENABLED=false` por defecto;
-- media loader solo después del self-chat guard;
-- descarga lazy;
-- `fileLength` declarado se valida antes de descargar y los bytes reales se validan otra vez antes de subir;
-- buffer efímero en memoria, sin archivo persistente creado por la app;
-- audit sin audio/file name/transcript;
-- el transcript se devuelve como texto y **no se ejecuta como comando**.
-
-## Stage 2C — Calendar sin writes
-
-Stage 2C añade el boundary que debe existir antes de conectar Google Calendar:
+## Capacidades locales
 
 ```text
-agenda mañana a las 10 reunión con Ana por 30 minutos
+ping
+estado
+ayuda
+
+anota comprar filtro de agua
+notas
+completa nota #1
+archiva nota #2
+
+gasté S/ 78.50 en taxi #transporte
+gastos hoy
+gastos semana
+gastos mes
+resumen gastos mes
+categoriza gasto #1 como transporte
+
+recuérdame mañana a las 10 pagar la tarjeta
+recordatorios
+completa recordatorio #1
+cancela recordatorio #2
+
+briefing
 ```
 
-crea solamente una `action_request` local `pending`.
+## IA explícita — Stage 2A
 
-Comandos:
-
-```text
-acciones
-aprueba acción #1
-rechaza acción #1
-```
-
-Reglas:
-
-- `agenda ...` reutiliza el parser horario determinista de recordatorios;
-- duración por defecto: 60 minutos;
-- se aceptan `por/durante N minutos/horas` entre 5 minutos y 8 horas;
-- una propuesta expira al llegar su hora de inicio y ya no puede aprobarse;
-- aprobar/rechazar es una transición local atómica;
-- **aprobar NO ejecuta Google Calendar**;
-- Stage 2C deliberadamente no contiene Calendar provider/executor ni OAuth.
-
-## Configuración
-
-```bash
-cp .env.example .env
-npm ci
-npm run check
-npm audit --omit=dev --audit-level=high
-npm run dev
-```
-
-IA:
+Solo el texto después de `ia`/`ai` sale al proveedor. No se adjunta automáticamente historial, notas, gastos ni recordatorios.
 
 ```env
 AI_ENABLED=false
@@ -91,7 +66,9 @@ AI_API_KEY=
 AI_MODEL=
 ```
 
-Transcripción:
+## Audio/transcripción — Stage 2B
+
+Solo audio del self-chat autorizado puede recibir un lazy media loader. Se comprueba tamaño declarado y tamaño real antes del upload.
 
 ```env
 TRANSCRIPTION_ENABLED=false
@@ -102,11 +79,114 @@ TRANSCRIPTION_MODEL=
 TRANSCRIPTION_MAX_BYTES=15728640
 ```
 
-Endpoints remotos de IA/transcripción deben usar HTTPS; loopback puede usar HTTP y omitir API key.
+La transcripción vuelve como texto terminal; una transcripción que diga `anota ...`, `agenda ...` o similar no se ejecuta.
 
-## QA
+## Calendar — Stages 2C/2D
 
-El QA real pendiente está centralizado en [`docs/QA-PENDING.md`](docs/QA-PENDING.md): pairing/reconnect/RPi, proveedor IA, audio real/transcripción, flujo real de propuestas/aprobación y operaciones.
+La intención y el write son pasos distintos:
+
+```text
+agenda mañana a las 10 reunión con Ana por 30 minutos
+acciones
+aprueba acción #1
+ejecuta acción #1
+```
+
+Reglas principales:
+
+- `agenda ...` crea solo una propuesta `pending`;
+- aprobar/rechazar son transiciones locales;
+- una propuesta expira al llegar su hora de inicio;
+- el executor vuelve a validar schema/fecha/timezone;
+- el ledger de ejecución usa idempotency key estable;
+- Google recibe un event ID determinista para reducir duplicados ante retries/crashes;
+- repetir una ejecución exitosa no crea otro evento.
+
+```env
+CALENDAR_ENABLED=false
+CALENDAR_PROVIDER=google
+GOOGLE_CALENDAR_ID=primary
+GOOGLE_CALENDAR_CLIENT_ID=
+GOOGLE_CALENDAR_CLIENT_SECRET=
+GOOGLE_CALENDAR_REFRESH_TOKEN=
+CALENDAR_TIMEOUT_MS=20000
+```
+
+`CALENDAR_ENABLED=false` es el default.
+
+## Briefing personal — Stage 2E
+
+`briefing` genera un resumen determinista con estado local. El envío diario automático es opcional y exige un destino que ya pertenezca a `WHATSAPP_SELF_JIDS`.
+
+```env
+BRIEFING_ENABLED=false
+BRIEFING_TIME=08:00
+BRIEFING_DESTINATION_JID=
+```
+
+## Retención operacional — Stage 2E
+
+Opt-in. Purga normalized self-chat messages, outbound IDs, audit y briefing-delivery rows. No borra notas, gastos, recordatorios, actions, allowlists ni credenciales.
+
+```env
+RETENTION_ENABLED=false
+MESSAGE_RETENTION_DAYS=30
+OUTBOUND_RETENTION_DAYS=30
+AUDIT_RETENTION_DAYS=90
+BRIEFING_RETENTION_DAYS=90
+```
+
+## Observer read-only — Stage 2F
+
+Observer está apagado por defecto. Para capturar texto deben cumplirse todos estos gates:
+
+1. `WHATSAPP_ENABLED=true`;
+2. `WHATSAPP_SELF_JIDS` contiene el self-chat administrativo;
+3. `OBSERVER_ENABLED=true`;
+4. el JID concreto está habilitado en `observed_chats`.
+
+Administración desde el self-chat:
+
+```text
+observa chat 519XXXXXXXX@s.whatsapp.net como Trabajo
+observa chat 120363XXXXXXXX@g.us como Familia
+chats observados
+deja de observar 519XXXXXXXX@s.whatsapp.net
+```
+
+Configuración:
+
+```env
+OBSERVER_ENABLED=false
+```
+
+Observer initial:
+
+- solo eventos live `messages.upsert`/`notify`;
+- solo texto, máximo 4.000 caracteres;
+- tabla SQLite dedicada `observations`;
+- idempotencia `(chat_jid,message_id)`;
+- retención por chat de 1–90 días, default 7;
+- no media download;
+- no IA/transcripción automática;
+- no Calendar/actions;
+- no replies a terceros/grupos.
+
+Ver contrato completo en [`docs/OBSERVER-FOUNDATION.md`](docs/OBSERVER-FOUNDATION.md).
+
+## Desarrollo local
+
+Requisitos: Node 22.18+.
+
+```bash
+cp .env.example .env
+npm ci
+npm run check
+npm audit --omit=dev --audit-level=high
+npm run dev
+```
+
+Endpoints remotos de IA/transcripción deben usar HTTPS; HTTP se permite solo en loopback.
 
 ## Docker
 
@@ -117,21 +197,23 @@ curl http://127.0.0.1:8787/healthz
 curl http://127.0.0.1:8787/readyz
 ```
 
-## Arquitectura y seguridad
+CI valida tests/typecheck/audit y builds `linux/amd64` + `linux/arm64`.
+
+## Documentación
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - [`docs/SECURITY.md`](docs/SECURITY.md)
+- [`docs/OBSERVER-FOUNDATION.md`](docs/OBSERVER-FOUNDATION.md)
 - [`docs/QA-PENDING.md`](docs/QA-PENDING.md)
 
 ## Próximos bloques
 
-1. diseñar Calendar provider/executor con idempotencia y revalidación de acciones `approved`;
-2. definir OAuth/token storage y refresh strategy antes de habilitar Calendar writes;
-3. briefing personal;
-4. Observer read-only con allowlist explícita;
-5. memoria/búsqueda y documentos;
-6. integraciones opcionales con OpenClaw, Claude Code, Codex u otros agentes.
+1. cerrar QA real de Stage 1/2 sin marcarlo aprobado artificialmente;
+2. reforzar reliability de Baileys (`getMessage`/resend store) antes de depender de recovery avanzado;
+3. añadir lectura/búsqueda local controlada sobre observaciones, sin IA automática;
+4. memoria/búsqueda y documentos con boundaries de privacidad propios;
+5. integraciones opcionales con OpenClaw, Claude Code, Codex u otros agentes si aportan valor.
 
 ## Aviso
 
-Baileys interactúa con WhatsApp Web y no es la API oficial de WhatsApp Business. El proyecto es para uso personal y conservador; no debe usarse para spam, mensajes masivos, outreach automatizado, vigilancia ni automatización abusiva.
+Baileys interactúa con WhatsApp Web y no es la API oficial de WhatsApp Business. El proyecto es para uso personal y conservador. Observer puede almacenar contenido de terceros cuando está activado y el chat fue autorizado; antes de usarlo con conversaciones reales deben revisarse necesidad, consentimiento aplicable, minimización y retención. No debe usarse para spam, outreach automatizado, vigilancia abusiva ni mensajería masiva.
