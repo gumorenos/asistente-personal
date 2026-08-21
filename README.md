@@ -11,7 +11,7 @@ Asistente personal autónomo con WhatsApp como interfaz inicial. El núcleo func
 - **Stage 2D:** ejecución Google Calendar implementada detrás de enable + aprobación + ejecución explícita; QA Google real pendiente.
 - **Stage 2E:** briefing personal y retención operacional implementados, ambos opt-in donde corresponde.
 - **Stage 2F:** Observer text-only/read-only + lectura local explícita implementados detrás de límites estrictos; QA WhatsApp real pendiente.
-- **Stage 2G:** persistent Baileys `getMessage`/retry store implementado; recovery real resend/missing-message pendiente de sesión WhatsApp QA.
+- **Stage 2G:** persistent Baileys `getMessage`/retry store implementado y PN/LID-aware; recovery real resend/missing-message pendiente de sesión WhatsApp QA.
 
 Ningún check manual se considera aprobado por los tests automatizados. La fuente de verdad sigue siendo [`docs/QA-PENDING.md`](docs/QA-PENDING.md).
 
@@ -28,6 +28,7 @@ Ningún check manual se considera aprobado por los tests automatizados. La fuent
 - media Observer no se descarga;
 - lectura Observer requiere un comando explícito desde el self-chat, JID exacto y máximo 10 filas;
 - el retry store de Baileys solo guarda contenido protobuf de self-chat autorizado/outbound, nunca Observer/ignored;
+- el retry store conserva alias PN/LID para resolver el mismo `message_id` por cualquiera de las dos identidades;
 - full history permanece deshabilitado.
 
 ## Capacidades locales
@@ -192,18 +193,21 @@ Ver contrato completo en [`docs/OBSERVER-FOUNDATION.md`](docs/OBSERVER-FOUNDATIO
 
 ## Baileys retry/recovery — Stage 2G
 
-Baileys requiere un `getMessage(key)` respaldado por el store de la aplicación para retries y ciertos updates. La app ahora usa una tabla SQLite dedicada `whatsapp_message_store` (migración v10):
+Baileys requiere un `getMessage(key)` respaldado por el store de la aplicación para retries y determinados message updates. La app ahora usa una tabla SQLite dedicada `whatsapp_message_store`:
 
-- key `(remote_jid,message_id)`;
+- migración v10 crea el store base;
+- migración v11 añade `remote_jid_alt` e índice para aliases PN/LID;
+- key primaria `(remote_jid,message_id)` y lookup seguro por primary/alt + el mismo `message_id`;
 - persiste únicamente `IMessage` serializado con `BufferJSON`;
 - guarda inmediatamente respuestas retornadas por `sendMessage`;
 - guarda inbound solo después de resolver self-chat autorizado;
 - Observer, grupos/terceros no autorizados e ignored traffic retornan antes del write;
-- `getMessage` recupera por JID + message ID exactos;
+- `getMessage` recupera por JID + message ID exactos, aceptando el alias PN/LID conocido para ese mismo registro;
+- un resend que invierta PN/LID actualiza la misma fila, sin duplicarla ni perder el alias;
 - upsert idempotente;
 - con retención habilitada sigue `MESSAGE_RETENTION_DAYS`.
 
-Esto cierra el gap de implementación que devolvía siempre `undefined`, pero **no sustituye QA live**: resend/missing-message recovery debe validarse con una sesión WhatsApp real.
+Esto cierra el gap de implementación que devolvía siempre `undefined`, pero **no sustituye QA live**: resend/missing-message recovery y PN/LID reales deben validarse con una sesión WhatsApp real.
 
 ## Desarrollo local
 
@@ -240,7 +244,7 @@ CI valida tests/typecheck/audit y builds `linux/amd64` + `linux/arm64`.
 ## Próximos bloques
 
 1. cerrar QA real de Stage 1/2 sin marcarlo aprobado artificialmente;
-2. validar `getMessage`/resend/missing-message recovery live con una sesión WhatsApp QA;
+2. validar `getMessage`/resend/missing-message recovery y aliases PN/LID live con una sesión WhatsApp QA;
 3. evaluar búsqueda local por keyword sobre un único JID con límites estrictos, sin IA automática;
 4. memoria/búsqueda y documentos con boundaries de privacidad propios;
 5. integraciones opcionales con OpenClaw, Claude Code, Codex u otros agentes si aportan valor.
