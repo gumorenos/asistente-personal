@@ -9,6 +9,7 @@ const DEFAULT_LIMIT = 5;
 const MAX_LIMIT = 10;
 const MAX_ITEM_CHARS = 280;
 const MAX_REPLY_CHARS = 3_500;
+const TRUNCATION_MARKER = '… salida truncada por límite de seguridad.';
 
 function auditEntity(jid: string): string {
   return createHash('sha256').update(jid).digest('hex').slice(0, 16);
@@ -94,15 +95,28 @@ export class ObserverReadCapability implements Capability {
     }
 
     const header = `👁️ Observaciones locales · ${chat.label ? `${chat.label} — ` : ''}${jid}${chat.enabled ? '' : ' · chat deshabilitado'}`;
-    const lines = [header];
+    const lines = [header.slice(0, MAX_REPLY_CHARS)];
+    let truncated = false;
+
     for (const row of rows) {
-      const candidate = [...lines, formatRow(row, this.timeZone)].join('\n');
+      const formatted = formatRow(row, this.timeZone);
+      const candidate = [...lines, formatted].join('\n');
       if (candidate.length > MAX_REPLY_CHARS) {
-        lines.push('… salida truncada por límite de seguridad.');
+        truncated = true;
         break;
       }
-      lines.push(formatRow(row, this.timeZone));
+      lines.push(formatted);
     }
-    return { handled: true, reply: lines.join('\n') };
+
+    if (truncated) {
+      const current = lines.join('\n');
+      const remaining = MAX_REPLY_CHARS - current.length;
+      if (remaining > 1) {
+        const marker = TRUNCATION_MARKER.slice(0, remaining - 1);
+        if (marker) lines.push(marker);
+      }
+    }
+
+    return { handled: true, reply: lines.join('\n').slice(0, MAX_REPLY_CHARS) };
   }
 }
