@@ -46,6 +46,9 @@ export interface AppConfig {
     minute: number;
     destinationJid?: string;
   };
+  observer: {
+    enabled: boolean;
+  };
   retention: {
     enabled: boolean;
     messageDays: number;
@@ -196,6 +199,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('BRIEFING_DESTINATION_JID must be present in WHATSAPP_SELF_JIDS');
   }
 
+  const observerEnabled = parseBoolean(env.OBSERVER_ENABLED, false);
+  if (observerEnabled && !whatsappEnabled) throw new Error('WHATSAPP_ENABLED=true is required when OBSERVER_ENABLED=true');
+  if (observerEnabled && selfJids.length === 0) {
+    throw new Error('WHATSAPP_SELF_JIDS must contain an administrative self-chat when OBSERVER_ENABLED=true');
+  }
+
   return {
     nodeEnv: env.NODE_ENV ?? 'development',
     dbPath: env.APP_DB_PATH ?? './data/assistant.db',
@@ -243,6 +252,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       hour: briefingTime.hour,
       minute: briefingTime.minute,
       destinationJid: briefingDestinationJid,
+    },
+    observer: {
+      enabled: observerEnabled,
     },
     retention: {
       enabled: parseBoolean(env.RETENTION_ENABLED, false),
