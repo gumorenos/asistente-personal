@@ -2,6 +2,7 @@ import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { runMigrations } from './migrations.ts';
+import { runStage4Migration } from './stage4-migration.ts';
 
 export class AppDatabase {
   readonly native: DatabaseSync;
@@ -25,6 +26,7 @@ export class AppDatabase {
     this.native.exec('PRAGMA foreign_keys = ON;');
     this.native.exec('PRAGMA busy_timeout = 5000;');
     runMigrations(this.native);
+    runStage4Migration(this.native);
   }
 
   ping(): boolean {
