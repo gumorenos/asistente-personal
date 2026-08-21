@@ -40,8 +40,8 @@ test('observer FTS search is scoped to one exact JID', () => {
   const db = new AppDatabase(':memory:');
   const chats = new ObservedChatRepository(db);
   const sink = new SqliteObservationSink(db);
-  chats.upsert(CHAT_A, 'A');
-  chats.upsert(CHAT_B, 'B');
+  chats.enable(CHAT_A, 'A');
+  chats.enable(CHAT_B, 'B');
 
   saveObservation(sink, CHAT_A, 'a1', 'proyecto orion presupuesto aprobado', 1_776_000_001);
   saveObservation(sink, CHAT_B, 'b1', 'proyecto orion secreto chat b', 1_776_000_002);
@@ -59,7 +59,7 @@ test('observer search capability requires an administratively known exact JID an
   const chats = new ObservedChatRepository(db);
   const sink = new SqliteObservationSink(db);
   const audit = new AuditRepository(db);
-  chats.upsert(CHAT_A, 'Trabajo');
+  chats.enable(CHAT_A, 'Trabajo');
   saveObservation(sink, CHAT_A, 'a1', 'palabrasecreta contrato cliente', 1_776_000_001);
 
   const capability = new ObserverSearchCapability(chats, sink, audit, 'America/Lima');
@@ -82,7 +82,7 @@ test('disabled observed chat remains searchable only for retained local rows', a
   const chats = new ObservedChatRepository(db);
   const sink = new SqliteObservationSink(db);
   const audit = new AuditRepository(db);
-  chats.upsert(CHAT_A, 'Archivado');
+  chats.enable(CHAT_A, 'Archivado');
   saveObservation(sink, CHAT_A, 'a1', 'historial retenido alfa', 1_776_000_001);
   chats.disable(CHAT_A);
 
@@ -97,7 +97,7 @@ test('observer purge removes matching FTS rows through trigger', () => {
   const db = new AppDatabase(':memory:');
   const chats = new ObservedChatRepository(db);
   const sink = new SqliteObservationSink(db);
-  chats.upsert(CHAT_A, 'Temporal', 1);
+  chats.enable(CHAT_A, 'Temporal', 1);
   saveObservation(sink, CHAT_A, 'old', 'expirafts mañana', 1_700_000_000);
   assert.equal(sink.search(CHAT_A, 'expirafts').length, 1);
 
