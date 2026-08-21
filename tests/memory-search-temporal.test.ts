@@ -79,9 +79,9 @@ test('busca gastos hoy uses America/Lima local-day boundaries', async () => {
   assert.match(reply, /taxi-end/);
   assert.doesNotMatch(reply, /taxi-old|taxi-tomorrow/);
 
-  const auditJson = JSON.stringify(audit.listRecent());
-  assert.match(auditJson, /"temporalScope":"day"/);
-  assert.doesNotMatch(auditJson, /taxi|2026-08-21/);
+  const metadataJson = JSON.stringify(audit.listRecent()[0]?.metadata ?? {});
+  assert.match(metadataJson, /"temporalScope":"day"/);
+  assert.doesNotMatch(metadataJson, /taxi|2026-08-21/);
   db.close();
 });
 
@@ -102,9 +102,9 @@ test('custom date range is user-inclusive and timezone-aware', async () => {
   assert.match(reply, /taxi-end/);
   assert.doesNotMatch(reply, /taxi-tomorrow/);
 
-  const auditJson = JSON.stringify(audit.listRecent());
-  assert.match(auditJson, /"temporalScope":"custom"/);
-  assert.doesNotMatch(auditJson, /2026-08-20|2026-08-21|taxi/);
+  const metadataJson = JSON.stringify(audit.listRecent()[0]?.metadata ?? {});
+  assert.match(metadataJson, /"temporalScope":"custom"/);
+  assert.doesNotMatch(metadataJson, /2026-08-20|2026-08-21|taxi/);
   db.close();
 });
 
