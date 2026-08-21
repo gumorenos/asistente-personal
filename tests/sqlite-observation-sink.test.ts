@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { IncomingMessage } from '../src/core/types.ts';
 import { AppDatabase } from '../src/database/db.ts';
 import { ObservedChatRepository } from '../src/database/observed-chat-repository.ts';
 import { ObserverService } from '../src/observer/observer-service.ts';
-import { installObservationSchema, SqliteObservationSink } from '../src/observer/sqlite-observation-sink.ts';
-import type { IncomingMessage } from '../src/core/types.ts';
+import { SqliteObservationSink } from '../src/observer/sqlite-observation-sink.ts';
 
 function message(chatJid: string, id = 'm1', text = 'hola'): IncomingMessage {
   return {
@@ -21,12 +21,24 @@ function message(chatJid: string, id = 'm1', text = 'hola'): IncomingMessage {
 
 function setup() {
   const db = new AppDatabase(':memory:');
-  installObservationSchema(db);
   const chats = new ObservedChatRepository(db);
   const sink = new SqliteObservationSink(db);
   const service = new ObserverService(chats, sink);
   return { db, chats, sink, service };
 }
+
+test('central migrations install the dedicated observations table', () => {
+  const { db } = setup();
+  const row = db.native
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'observations'")
+    .get() as { name: string } | undefined;
+  assert.equal(row?.name, 'observations');
+  const migration = db.native
+    .prepare('SELECT version FROM schema_migrations WHERE version = 9')
+    .get() as { version: number } | undefined;
+  assert.equal(migration?.version, 9);
+  db.close();
+});
 
 test('persistent sink stores allowlisted text idempotently in its dedicated table', async () => {
   const { db, chats, sink, service } = setup();
