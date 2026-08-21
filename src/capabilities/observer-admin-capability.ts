@@ -17,10 +17,12 @@ export class ObserverAdminCapability implements Capability {
 
   private readonly chats: ObservedChatRepository;
   private readonly audit: AuditRepository;
+  private readonly observerEnabled: boolean;
 
-  constructor(chats: ObservedChatRepository, audit: AuditRepository) {
+  constructor(chats: ObservedChatRepository, audit: AuditRepository, observerEnabled = false) {
     this.chats = chats;
     this.audit = audit;
+    this.observerEnabled = observerEnabled;
   }
 
   async handle(message: IncomingMessage): Promise<CapabilityResult | undefined> {
@@ -29,16 +31,19 @@ export class ObserverAdminCapability implements Capability {
 
     if (['chats observados', 'observer chats', 'observados'].includes(normalized)) {
       const rows = this.chats.listEnabled();
+      const state = this.observerEnabled
+        ? 'Observer read-only está ACTIVO: solo estos chats pueden persistir texto.'
+        : 'Observer está DESHABILITADO: esta allowlist no captura nada todavía.';
       return {
         handled: true,
         reply: rows.length
           ? [
-              '👁️ Chats autorizados para un futuro Observer:',
+              '👁️ Chats autorizados:',
               ...rows.map((row) => `• ${row.label ? `${row.label} — ` : ''}${row.jid} — retención ${row.retentionDays} días`),
               '',
-              'Esta allowlist NO activa Observer todavía.',
+              state,
             ].join('\n')
-          : '👁️ No hay chats autorizados. Observer sigue deshabilitado.',
+          : `👁️ No hay chats autorizados. ${state}`,
       };
     }
 
@@ -54,7 +59,9 @@ export class ObserverAdminCapability implements Capability {
         });
         return {
           handled: true,
-          reply: `👁️ ${row.jid} quedó en la allowlist${row.label ? ` como “${row.label}”` : ''}. Observer todavía NO está activo.`,
+          reply: this.observerEnabled
+            ? `👁️ ${row.jid} quedó autorizado${row.label ? ` como “${row.label}”` : ''}. Desde ahora Observer puede persistir únicamente texto de ese chat por 7 días; no responderá ni ejecutará acciones.`
+            : `👁️ ${row.jid} quedó en la allowlist${row.label ? ` como “${row.label}”` : ''}. Observer sigue deshabilitado, así que no se captura nada.`,
         };
       } catch {
         return { handled: true, reply: '⚠️ JID o etiqueta inválidos. No cambié la allowlist.' };
@@ -71,7 +78,9 @@ export class ObserverAdminCapability implements Capability {
         }
         return {
           handled: true,
-          reply: changed ? `👁️ ${jid} retirado de la allowlist.` : `No encontré ${jid} habilitado en la allowlist.`,
+          reply: changed
+            ? `👁️ ${jid} retirado de la allowlist. No se persistirán mensajes nuevos de ese chat.`
+            : `No encontré ${jid} habilitado en la allowlist.`,
         };
       } catch {
         return { handled: true, reply: '⚠️ JID inválido. No cambié la allowlist.' };
