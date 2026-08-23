@@ -138,8 +138,12 @@ function parseCalendarId(value: string | undefined): string {
 
 function parseOcrLanguages(value: string | undefined): string {
   const languages = value?.trim().toLowerCase() || 'spa+eng';
-  if (!/^[a-z]{3}(?:\+[a-z]{3}){0,4}$/.test(languages)) {
+  if (!/^[a-z]{3}(?:\+[a-z]{3})?$/.test(languages)) {
     throw new Error('Invalid DOCUMENTS_OCR_LANGUAGES');
+  }
+  const parts = languages.split('+');
+  if (new Set(parts).size !== parts.length || parts.some((language) => language !== 'spa' && language !== 'eng')) {
+    throw new Error('DOCUMENTS_OCR_LANGUAGES supports only spa and eng');
   }
   return languages;
 }
