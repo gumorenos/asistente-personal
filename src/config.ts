@@ -37,6 +37,13 @@ export interface AppConfig {
     maxPages: number;
     maxTextChars: number;
     timeoutMs: number;
+    ocr: {
+      enabled: boolean;
+      maxPages: number;
+      dpi: number;
+      languages: string;
+      timeoutMs: number;
+    };
   };
   calendar: {
     enabled: boolean;
@@ -129,6 +136,14 @@ function parseCalendarId(value: string | undefined): string {
   return calendarId;
 }
 
+function parseOcrLanguages(value: string | undefined): string {
+  const languages = value?.trim().toLowerCase() || 'spa+eng';
+  if (!/^[a-z]{3}(?:\+[a-z]{3}){0,4}$/.test(languages)) {
+    throw new Error('Invalid DOCUMENTS_OCR_LANGUAGES');
+  }
+  return languages;
+}
+
 function isLoopback(hostname: string): boolean {
   return ['localhost', '127.0.0.1', '::1', '[::1]'].includes(hostname.toLowerCase());
 }
@@ -192,6 +207,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const transcriptionApiKey = env.TRANSCRIPTION_API_KEY?.trim() || undefined;
   validateExternalProvider(transcriptionEnabled, transcriptionBaseUrl, transcriptionModel, transcriptionApiKey, 'TRANSCRIPTION');
 
+  const documentsEnabled = parseBoolean(env.DOCUMENTS_ENABLED, false);
+  const documentOcrEnabled = parseBoolean(env.DOCUMENTS_OCR_ENABLED, false);
+  if (documentOcrEnabled && !documentsEnabled) {
+    throw new Error('DOCUMENTS_ENABLED=true is required when DOCUMENTS_OCR_ENABLED=true');
+  }
+
   const calendarEnabled = parseBoolean(env.CALENDAR_ENABLED, false);
   const calendarClientId = requiredSecret(env.GOOGLE_CALENDAR_CLIENT_ID, 'GOOGLE_CALENDAR_CLIENT_ID', calendarEnabled);
   const calendarClientSecret = requiredSecret(env.GOOGLE_CALENDAR_CLIENT_SECRET, 'GOOGLE_CALENDAR_CLIENT_SECRET', calendarEnabled);
@@ -246,11 +267,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       maxTranscriptChars: parsePositiveInteger(env.TRANSCRIPTION_MAX_CHARS, 6_000, 'TRANSCRIPTION_MAX_CHARS', 100, 20_000),
     },
     documents: {
-      enabled: parseBoolean(env.DOCUMENTS_ENABLED, false),
+      enabled: documentsEnabled,
       maxBytes: parsePositiveInteger(env.DOCUMENTS_MAX_BYTES, 10 * 1024 * 1024, 'DOCUMENTS_MAX_BYTES', 1_024, 25 * 1024 * 1024),
       maxPages: parsePositiveInteger(env.DOCUMENTS_MAX_PAGES, 50, 'DOCUMENTS_MAX_PAGES', 1, 200),
       maxTextChars: parsePositiveInteger(env.DOCUMENTS_MAX_TEXT_CHARS, 100_000, 'DOCUMENTS_MAX_TEXT_CHARS', 100, 200_000),
       timeoutMs: parsePositiveInteger(env.DOCUMENTS_TIMEOUT_MS, 20_000, 'DOCUMENTS_TIMEOUT_MS', 1_000, 120_000),
+      ocr: {
+        enabled: documentOcrEnabled,
+        maxPages: parsePositiveInteger(env.DOCUMENTS_OCR_MAX_PAGES, 10, 'DOCUMENTS_OCR_MAX_PAGES', 1, 50),
+        dpi: parsePositiveInteger(env.DOCUMENTS_OCR_DPI, 180, 'DOCUMENTS_OCR_DPI', 100, 300),
+        languages: parseOcrLanguages(env.DOCUMENTS_OCR_LANGUAGES),
+        timeoutMs: parsePositiveInteger(env.DOCUMENTS_OCR_TIMEOUT_MS, 60_000, 'DOCUMENTS_OCR_TIMEOUT_MS', 1_000, 300_000),
+      },
     },
     calendar: {
       enabled: calendarEnabled,
