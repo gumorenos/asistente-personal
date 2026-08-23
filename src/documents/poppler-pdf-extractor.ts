@@ -80,7 +80,7 @@ export class PopplerPdfExtractor implements DocumentExtractor {
       const truncated = normalized.length > request.maxTextChars;
       const text = truncated ? normalized.slice(0, request.maxTextChars).trimEnd() : normalized;
 
-      return { text, pageCount, truncated };
+      return { text, pageCount, truncated, method: 'text-layer' };
     } finally {
       await rm(directory, { recursive: true, force: true }).catch(() => undefined);
     }
