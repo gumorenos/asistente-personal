@@ -144,7 +144,7 @@ function parseOcrLanguages(value: string | undefined): string {
   const languages = value?.trim().toLowerCase() || 'spa+eng';
   const parts = languages.split('+');
   if (parts.length < 1 || parts.length > 2 || parts.some((part) => !['spa', 'eng'].includes(part)) || new Set(parts).size !== parts.length) {
-    throw new Error('Invalid DOCUMENTS_OCR_LANGUAGES: supported values are spa, eng or spa+eng');
+    throw new Error('Invalid DOCUMENTS_OCR_LANGUAGES: supports only spa and eng');
   }
   return languages;
 }
