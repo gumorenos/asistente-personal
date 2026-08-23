@@ -25,6 +25,7 @@ export class AppDatabase {
     this.native.exec('PRAGMA journal_mode = WAL;');
     this.native.exec('PRAGMA foreign_keys = ON;');
     this.native.exec('PRAGMA busy_timeout = 5000;');
+    this.native.exec('PRAGMA secure_delete = ON;');
     runMigrations(this.native);
     runStage4Migration(this.native);
   }

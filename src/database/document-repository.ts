@@ -26,6 +26,16 @@ export interface SaveDocumentInput {
   truncated: boolean;
 }
 
+export interface DocumentDeleteResult {
+  deleted: boolean;
+  walCheckpointed: boolean;
+}
+
+export interface DocumentPurgeResult {
+  deleted: number;
+  walCheckpointed: boolean;
+}
+
 function bounded(value: string, max: number, name: string): string {
   const trimmed = value.trim();
   if (!trimmed || trimmed.length > max) throw new Error(`Invalid ${name}`);
@@ -97,6 +107,42 @@ export class DocumentRepository {
       FROM documents ORDER BY id DESC LIMIT ?
     `).all(limit) as unknown as DocumentRow[];
     return rows.map(mapRow);
+  }
+
+  delete(id: number): DocumentDeleteResult {
+    if (!Number.isSafeInteger(id) || id < 1) throw new Error('Invalid document id');
+    const result = this.database.native.prepare('DELETE FROM documents WHERE id = ?').run(id);
+    const deleted = result.changes === 1;
+    return {
+      deleted,
+      walCheckpointed: deleted ? this.checkpointWal() : true,
+    };
+  }
+
+  purgeCreatedBefore(cutoffIso: string): DocumentPurgeResult {
+    if (!Number.isFinite(new Date(cutoffIso).getTime())) throw new Error('Invalid document retention cutoff');
+    const result = this.database.native.prepare(`
+      DELETE FROM documents
+      WHERE datetime(created_at) < datetime(?)
+    `).run(cutoffIso);
+    const deleted = Number(result.changes);
+    return {
+      deleted,
+      walCheckpointed: deleted > 0 ? this.checkpointWal() : true,
+    };
+  }
+
+  private checkpointWal(): boolean {
+    try {
+      const row = this.database.native.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as
+        | { busy?: number | bigint }
+        | undefined;
+      return Number(row?.busy ?? 1) === 0;
+    } catch {
+      // Logical deletion has already committed. WAL truncation is privacy hardening,
+      // not a reason to resurrect domain data or report the delete as failed.
+      return false;
+    }
   }
 }
 
