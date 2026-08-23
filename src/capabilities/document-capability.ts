@@ -110,7 +110,7 @@ export class DocumentCapability implements Capability {
 
     const declaredMime = message.mediaMimeType?.trim().toLowerCase();
     if (declaredMime && declaredMime !== 'application/pdf') {
-      return { handled: true, reply: '📄 Stage 4A admite únicamente archivos PDF.' };
+      return { handled: true, reply: '📄 La memoria documental admite únicamente archivos PDF.' };
     }
 
     if (!message.loadMedia) {
@@ -164,15 +164,22 @@ export class DocumentCapability implements Capability {
         timeoutMs: this.config.timeoutMs,
       });
       const text = extracted.text.trim();
+      const method = extracted.method ?? 'text-layer';
       if (!text) {
         this.audit.record({
           eventType: 'document.ingest.rejected',
           entityType: 'document',
-          metadata: { reason: 'no_text_layer', pages: extracted.pageCount },
+          metadata: {
+            reason: method === 'ocr' ? 'ocr_no_text' : 'no_text_layer',
+            pages: extracted.pageCount,
+            method,
+          },
         });
         return {
           handled: true,
-          reply: '📄 El PDF no contiene texto extraíble. No lo guardé; probablemente requiera OCR, que queda para Stage 4B.',
+          reply: method === 'ocr'
+            ? '📄 El OCR local no encontró texto legible. No guardé el documento ni ejecuté ninguna acción.'
+            : '📄 El PDF no contiene texto extraíble. No lo guardé; habilita OCR local para intentar leer documentos escaneados.',
         };
       }
 
@@ -195,15 +202,17 @@ export class DocumentCapability implements Capability {
         entityId: String(stored.id),
         metadata: {
           extractor: this.extractor.name,
+          method,
           inputBytes: stored.byteLength,
           pages: stored.pageCount,
           outputChars: stored.text.length,
           truncated: stored.truncated,
         },
       });
+      const methodLabel = method === 'ocr' ? ' mediante OCR local' : '';
       return {
         handled: true,
-        reply: `📄 Documento #${stored.id} indexado localmente: ${stored.pageCount} pág. · ${stored.text.length} caracteres${stored.truncated ? ' · truncado al límite configurado' : ''}. Usa “busca documentos <texto>” para consultarlo.`,
+        reply: `📄 Documento #${stored.id} indexado localmente${methodLabel}: ${stored.pageCount} pág. · ${stored.text.length} caracteres${stored.truncated ? ' · truncado al límite configurado' : ''}. Usa “busca documentos <texto>” para consultarlo.`,
       };
     } catch (error) {
       this.audit.record({
