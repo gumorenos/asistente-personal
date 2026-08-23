@@ -5,10 +5,13 @@ export interface PdfExtractionRequest {
   timeoutMs: number;
 }
 
+export type PdfExtractionMethod = 'text-layer' | 'ocr';
+
 export interface PdfExtractionResult {
   text: string;
   pageCount: number;
   truncated: boolean;
+  method?: PdfExtractionMethod;
 }
 
 export interface DocumentExtractor {

@@ -35,7 +35,9 @@ import { NoteRepository } from './database/note-repository.ts';
 import { ObservedChatRepository } from './database/observed-chat-repository.ts';
 import { ReminderRepository } from './database/reminder-repository.ts';
 import { RetentionRepository } from './database/retention-repository.ts';
+import { HybridPdfExtractor } from './documents/hybrid-pdf-extractor.ts';
 import { PopplerPdfExtractor } from './documents/poppler-pdf-extractor.ts';
+import { TesseractPdfOcrExtractor } from './documents/tesseract-pdf-ocr-extractor.ts';
 import type { DocumentExtractor } from './documents/types.ts';
 import { ObserverService } from './observer/observer-service.ts';
 import { SqliteObservationSink } from './observer/sqlite-observation-sink.ts';
@@ -99,7 +101,17 @@ if (config.transcription.enabled) {
 
 let documentExtractor: DocumentExtractor | undefined;
 if (config.documents.enabled) {
-  documentExtractor = new PopplerPdfExtractor();
+  const poppler = new PopplerPdfExtractor();
+  const ocr = config.documents.ocr.enabled
+    ? new TesseractPdfOcrExtractor({
+        maxPages: config.documents.ocr.maxPages,
+        dpi: config.documents.ocr.dpi,
+        languages: config.documents.ocr.languages,
+      })
+    : undefined;
+  documentExtractor = new HybridPdfExtractor(poppler, ocr, {
+    ocrTimeoutMs: config.documents.ocr.timeoutMs,
+  });
 }
 
 let calendarExecutor: CalendarActionExecutor | undefined;
@@ -147,7 +159,7 @@ if (config.observer.enabled) {
 
 const capabilities: Capability[] = [
   // Document messages are terminal before local command parsing. A PDF caption can
-  // never be interpreted as `anota`, `agenda`, etc.
+  // never be interpreted as `anota`, `agenda`, etc., including after OCR.
   new DocumentCapability(documents, audit, documentExtractor, {
     enabled: config.documents.enabled,
     maxBytes: config.documents.maxBytes,
@@ -204,7 +216,9 @@ try {
     transcriptionEnabled: config.transcription.enabled,
     transcriptionProvider: config.transcription.enabled ? config.transcription.provider : 'disabled',
     documentsEnabled: config.documents.enabled,
-    documentExtractor: config.documents.enabled ? 'poppler' : 'disabled',
+    documentExtractor: config.documents.enabled ? documentExtractor?.name : 'disabled',
+    documentOcrEnabled: config.documents.ocr.enabled,
+    documentOcrLanguages: config.documents.ocr.enabled ? config.documents.ocr.languages : undefined,
     calendarWritesEnabled: config.calendar.enabled,
     calendarProvider: config.calendar.enabled ? config.calendar.provider : 'disabled',
     dailyBriefingEnabled: config.briefing.enabled,
