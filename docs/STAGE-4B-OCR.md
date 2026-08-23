@@ -68,7 +68,7 @@ Reglas:
 
 - OCR page limit: 1–50;
 - DPI: 100–300;
-- idiomas: códigos Tesseract de tres letras unidos por `+`, máximo cinco;
+- idiomas soportados por la imagen: `spa`, `eng` o `spa+eng` / `eng+spa`; otros códigos se rechazan al arrancar porque sus traineddata no están instalados;
 - timeout OCR: 1–300 segundos;
 - el límite OCR de páginas puede ser menor que `DOCUMENTS_MAX_PAGES`;
 - el timeout OCR es un deadline total del fallback, no un timeout nuevo completo por página;
@@ -105,7 +105,8 @@ CI debe verificar estos binarios y ambos idiomas en `linux/amd64` y `linux/arm64
 - no resume automáticamente documentos;
 - no extrae acciones o eventos del texto OCR;
 - no intenta OCR si el PDF ya tiene una capa de texto no vacía;
-- no corrige ni normaliza semánticamente errores OCR con IA.
+- no corrige ni normaliza semánticamente errores OCR con IA;
+- no habilita idiomas adicionales sin añadir primero el traineddata correspondiente a la imagen soportada.
 
 ## Criterio de cierre
 
