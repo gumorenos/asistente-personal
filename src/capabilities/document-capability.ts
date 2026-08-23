@@ -179,7 +179,7 @@ export class DocumentCapability implements Capability {
           handled: true,
           reply: method === 'ocr'
             ? '📄 El OCR local no encontró texto legible. No guardé el documento ni ejecuté ninguna acción.'
-            : '📄 El PDF no contiene texto extraíble. No lo guardé; habilita OCR local para intentar leer documentos escaneados.',
+            : '📄 El PDF no contiene texto extraíble. No lo guardé; probablemente requiera OCR local. Habilítalo para intentar leer documentos escaneados.',
         };
       }
 
