@@ -143,10 +143,18 @@ test('Tesseract extractor bounds OCR text and stops once max text is reached', a
   assert.equal(tesseractCalls, 1);
 });
 
-test('Tesseract extractor rejects unsafe language strings and invalid resource bounds', () => {
+test('Tesseract extractor rejects unsafe, unsupported or duplicated languages and invalid resource bounds', () => {
   assert.throws(
     () => new TesseractPdfOcrExtractor({ maxPages: 10, dpi: 180, languages: 'spa;rm -rf /' }),
     /Invalid OCR language list/,
+  );
+  assert.throws(
+    () => new TesseractPdfOcrExtractor({ maxPages: 10, dpi: 180, languages: 'fra' }),
+    /supports only installed languages spa and eng/,
+  );
+  assert.throws(
+    () => new TesseractPdfOcrExtractor({ maxPages: 10, dpi: 180, languages: 'eng+eng' }),
+    /supports only installed languages spa and eng/,
   );
   assert.throws(
     () => new TesseractPdfOcrExtractor({ maxPages: 10, dpi: 600, languages: 'spa' }),
