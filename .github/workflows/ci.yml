@@ -40,9 +40,12 @@ jobs:
           context: .
           push: false
           load: true
-          tags: assistant-ci:stage4
+          tags: assistant-ci:stage4b
           platforms: ${{ matrix.platform }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Smoke local PDF tooling
-        run: docker run --rm --platform ${{ matrix.platform }} assistant-ci:stage4 sh -lc 'pdfinfo -v && pdftotext -v'
+      - name: Smoke local PDF/OCR tooling
+        run: >-
+          docker run --rm --platform ${{ matrix.platform }} assistant-ci:stage4b sh -lc
+          'pdfinfo -v && pdftotext -v && pdftoppm -v && tesseract --version &&
+          tesseract --list-langs | grep -qx eng && tesseract --list-langs | grep -qx spa'
