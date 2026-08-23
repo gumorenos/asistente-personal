@@ -34,8 +34,10 @@ test('OCR cannot be enabled unless document ingestion is enabled', () => {
   assert.equal(config.documents.ocr.timeoutMs, 90_000);
 });
 
-test('OCR configuration rejects unsafe languages and resource limits', () => {
+test('OCR configuration rejects unsupported languages and resource limits', () => {
   assert.throws(() => loadConfig({ DOCUMENTS_OCR_LANGUAGES: 'spa;curl x' }), /DOCUMENTS_OCR_LANGUAGES/);
+  assert.throws(() => loadConfig({ DOCUMENTS_OCR_LANGUAGES: 'fra' }), /supports only spa and eng/);
+  assert.throws(() => loadConfig({ DOCUMENTS_OCR_LANGUAGES: 'spa+spa' }), /supports only spa and eng/);
   assert.throws(() => loadConfig({ DOCUMENTS_OCR_MAX_PAGES: '51' }), /DOCUMENTS_OCR_MAX_PAGES/);
   assert.throws(() => loadConfig({ DOCUMENTS_OCR_DPI: '99' }), /DOCUMENTS_OCR_DPI/);
   assert.throws(() => loadConfig({ DOCUMENTS_OCR_DPI: '301' }), /DOCUMENTS_OCR_DPI/);
