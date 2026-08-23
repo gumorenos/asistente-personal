@@ -56,8 +56,12 @@ function normalizeOcrText(text: string): string {
 
 function validateLanguages(value: string): string {
   const normalized = value.trim().toLowerCase();
-  if (!/^[a-z]{3}(?:\+[a-z]{3}){0,4}$/.test(normalized)) {
+  if (!/^[a-z]{3}(?:\+[a-z]{3})?$/.test(normalized)) {
     throw new Error('Invalid OCR language list');
+  }
+  const languages = normalized.split('+');
+  if (new Set(languages).size !== languages.length || languages.some((language) => language !== 'spa' && language !== 'eng')) {
+    throw new Error('OCR supports only installed languages spa and eng');
   }
   return normalized;
 }
