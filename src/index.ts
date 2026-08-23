@@ -6,12 +6,13 @@ import { CalendarActionExecutor } from './calendar/calendar-action-executor.ts';
 import { GoogleCalendarProvider } from './calendar/google-calendar-provider.ts';
 import { GoogleOAuthAccessTokenProvider } from './calendar/google-oauth-token-provider.ts';
 import { ActionApprovalCapability } from './capabilities/action-approval-capability.ts';
+import { ActionExecutionCapability } from './capabilities/action-execution-capability.ts';
 import { AiCapability } from './capabilities/ai-capability.ts';
 import { AudioTranscriptionCapability } from './capabilities/audio-transcription-capability.ts';
 import { BriefingCapability } from './capabilities/briefing-capability.ts';
-import { CalendarExecutionCapability } from './capabilities/calendar-execution-capability.ts';
 import { CalendarProposalCapability } from './capabilities/calendar-proposal-capability.ts';
 import { DocumentCapability } from './capabilities/document-capability.ts';
+import { DocumentLifecycleCapability } from './capabilities/document-lifecycle-capability.ts';
 import { LocalCapabilities } from './capabilities/local-capabilities.ts';
 import { MemorySearchCapability } from './capabilities/memory-search-capability.ts';
 import { ObserverAdminCapability } from './capabilities/observer-admin-capability.ts';
@@ -35,6 +36,7 @@ import { NoteRepository } from './database/note-repository.ts';
 import { ObservedChatRepository } from './database/observed-chat-repository.ts';
 import { ReminderRepository } from './database/reminder-repository.ts';
 import { RetentionRepository } from './database/retention-repository.ts';
+import { DocumentActionExecutor } from './documents/document-action-executor.ts';
 import { HybridPdfExtractor } from './documents/hybrid-pdf-extractor.ts';
 import { PopplerPdfExtractor } from './documents/poppler-pdf-extractor.ts';
 import { TesseractPdfOcrExtractor } from './documents/tesseract-pdf-ocr-extractor.ts';
@@ -42,6 +44,7 @@ import type { DocumentExtractor } from './documents/types.ts';
 import { ObserverService } from './observer/observer-service.ts';
 import { SqliteObservationSink } from './observer/sqlite-observation-sink.ts';
 import { BriefingScheduler } from './scheduler/briefing-scheduler.ts';
+import { DocumentRetentionScheduler } from './scheduler/document-retention-scheduler.ts';
 import { ObserverRetentionScheduler } from './scheduler/observer-retention-scheduler.ts';
 import { ReminderScheduler } from './scheduler/reminder-scheduler.ts';
 import { RetentionScheduler } from './scheduler/retention-scheduler.ts';
@@ -61,6 +64,7 @@ const documents = new DocumentRepository(database);
 const audit = new AuditRepository(database);
 const actions = new ActionRequestRepository(database);
 const actionExecutions = new ActionExecutionRepository(database);
+const documentActionExecutor = new DocumentActionExecutor(actions, actionExecutions, documents, audit);
 const briefingDeliveries = new BriefingDeliveryRepository(database);
 const observedChats = new ObservedChatRepository(database);
 const observationSink = new SqliteObservationSink(database);
@@ -152,6 +156,11 @@ if (config.retention.enabled) {
   });
 }
 
+let documentRetentionScheduler: DocumentRetentionScheduler | undefined;
+if (config.documents.retention.enabled) {
+  documentRetentionScheduler = new DocumentRetentionScheduler(documents, audit, config.documents.retention.days);
+}
+
 let observerRetentionScheduler: ObserverRetentionScheduler | undefined;
 if (config.observer.enabled) {
   observerRetentionScheduler = new ObserverRetentionScheduler(observationSink, audit);
@@ -167,6 +176,7 @@ const capabilities: Capability[] = [
     maxTextChars: config.documents.maxTextChars,
     timeoutMs: config.documents.timeoutMs,
   }),
+  new DocumentLifecycleCapability(documents, actions, audit),
   new LocalCapabilities(notes, reminders, expenses, audit, config.timeZone),
   new BriefingCapability(briefingService),
   new ObserverAdminCapability(observedChats, audit, config.observer.enabled),
@@ -175,7 +185,7 @@ const capabilities: Capability[] = [
   new MemorySearchCapability(memorySearch, audit, config.timeZone),
   new CalendarProposalCapability(actions, audit, config.timeZone),
   new ActionApprovalCapability(actions, audit),
-  new CalendarExecutionCapability(config.calendar.enabled, calendarExecutor),
+  new ActionExecutionCapability(actions, config.calendar.enabled, calendarExecutor, documentActionExecutor),
   new AudioTranscriptionCapability(transcriptionProvider, audit, {
     enabled: config.transcription.enabled,
     maxBytes: config.transcription.maxBytes,
@@ -199,6 +209,7 @@ const healthServer = await createHealthServer(config.healthHost, config.healthPo
 
 // These jobs are transport-independent and can run even if WhatsApp is degraded.
 retentionScheduler?.start();
+documentRetentionScheduler?.start();
 observerRetentionScheduler?.start();
 
 try {
@@ -219,6 +230,8 @@ try {
     documentExtractor: config.documents.enabled ? documentExtractor?.name : 'disabled',
     documentOcrEnabled: config.documents.ocr.enabled,
     documentOcrLanguages: config.documents.ocr.enabled ? config.documents.ocr.languages : undefined,
+    documentRetentionEnabled: config.documents.retention.enabled,
+    documentRetentionDays: config.documents.retention.enabled ? config.documents.retention.days : undefined,
     calendarWritesEnabled: config.calendar.enabled,
     calendarProvider: config.calendar.enabled ? config.calendar.provider : 'disabled',
     dailyBriefingEnabled: config.briefing.enabled,
@@ -250,6 +263,7 @@ async function shutdown(signal: string): Promise<void> {
   appState = 'stopped';
   logger.info('Shutting down', { signal });
   observerRetentionScheduler?.stop();
+  documentRetentionScheduler?.stop();
   retentionScheduler?.stop();
   briefingScheduler?.stop();
   reminderScheduler.stop();

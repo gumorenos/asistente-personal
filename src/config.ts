@@ -44,6 +44,10 @@ export interface AppConfig {
       languages: string;
       timeoutMs: number;
     };
+    retention: {
+      enabled: boolean;
+      days: number;
+    };
   };
   calendar: {
     enabled: boolean;
@@ -138,12 +142,9 @@ function parseCalendarId(value: string | undefined): string {
 
 function parseOcrLanguages(value: string | undefined): string {
   const languages = value?.trim().toLowerCase() || 'spa+eng';
-  if (!/^[a-z]{3}(?:\+[a-z]{3})?$/.test(languages)) {
-    throw new Error('Invalid DOCUMENTS_OCR_LANGUAGES');
-  }
   const parts = languages.split('+');
-  if (new Set(parts).size !== parts.length || parts.some((language) => language !== 'spa' && language !== 'eng')) {
-    throw new Error('DOCUMENTS_OCR_LANGUAGES supports only spa and eng');
+  if (parts.length < 1 || parts.length > 2 || parts.some((part) => !['spa', 'eng'].includes(part)) || new Set(parts).size !== parts.length) {
+    throw new Error('Invalid DOCUMENTS_OCR_LANGUAGES: supported values are spa, eng or spa+eng');
   }
   return languages;
 }
@@ -216,6 +217,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   if (documentOcrEnabled && !documentsEnabled) {
     throw new Error('DOCUMENTS_ENABLED=true is required when DOCUMENTS_OCR_ENABLED=true');
   }
+  const documentRetentionEnabled = parseBoolean(env.DOCUMENT_RETENTION_ENABLED, false);
 
   const calendarEnabled = parseBoolean(env.CALENDAR_ENABLED, false);
   const calendarClientId = requiredSecret(env.GOOGLE_CALENDAR_CLIENT_ID, 'GOOGLE_CALENDAR_CLIENT_ID', calendarEnabled);
@@ -282,6 +284,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         dpi: parsePositiveInteger(env.DOCUMENTS_OCR_DPI, 180, 'DOCUMENTS_OCR_DPI', 100, 300),
         languages: parseOcrLanguages(env.DOCUMENTS_OCR_LANGUAGES),
         timeoutMs: parsePositiveInteger(env.DOCUMENTS_OCR_TIMEOUT_MS, 60_000, 'DOCUMENTS_OCR_TIMEOUT_MS', 1_000, 300_000),
+      },
+      retention: {
+        enabled: documentRetentionEnabled,
+        days: parsePositiveInteger(env.DOCUMENT_RETENTION_DAYS, 90, 'DOCUMENT_RETENTION_DAYS', 1, 3_650),
       },
     },
     calendar: {
