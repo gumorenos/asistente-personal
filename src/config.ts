@@ -31,6 +31,13 @@ export interface AppConfig {
     maxBytes: number;
     maxTranscriptChars: number;
   };
+  documents: {
+    enabled: boolean;
+    maxBytes: number;
+    maxPages: number;
+    maxTextChars: number;
+    timeoutMs: number;
+  };
   calendar: {
     enabled: boolean;
     provider: 'google';
@@ -237,6 +244,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       timeoutMs: parsePositiveInteger(env.TRANSCRIPTION_TIMEOUT_MS, 60_000, 'TRANSCRIPTION_TIMEOUT_MS', 1_000, 180_000),
       maxBytes: parsePositiveInteger(env.TRANSCRIPTION_MAX_BYTES, 15 * 1024 * 1024, 'TRANSCRIPTION_MAX_BYTES', 1_024, 25 * 1024 * 1024),
       maxTranscriptChars: parsePositiveInteger(env.TRANSCRIPTION_MAX_CHARS, 6_000, 'TRANSCRIPTION_MAX_CHARS', 100, 20_000),
+    },
+    documents: {
+      enabled: parseBoolean(env.DOCUMENTS_ENABLED, false),
+      maxBytes: parsePositiveInteger(env.DOCUMENTS_MAX_BYTES, 10 * 1024 * 1024, 'DOCUMENTS_MAX_BYTES', 1_024, 25 * 1024 * 1024),
+      maxPages: parsePositiveInteger(env.DOCUMENTS_MAX_PAGES, 50, 'DOCUMENTS_MAX_PAGES', 1, 200),
+      maxTextChars: parsePositiveInteger(env.DOCUMENTS_MAX_TEXT_CHARS, 100_000, 'DOCUMENTS_MAX_TEXT_CHARS', 100, 200_000),
+      timeoutMs: parsePositiveInteger(env.DOCUMENTS_TIMEOUT_MS, 20_000, 'DOCUMENTS_TIMEOUT_MS', 1_000, 120_000),
     },
     calendar: {
       enabled: calendarEnabled,

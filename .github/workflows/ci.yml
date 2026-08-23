@@ -39,6 +39,10 @@ jobs:
         with:
           context: .
           push: false
+          load: true
+          tags: assistant-ci:stage4
           platforms: ${{ matrix.platform }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Smoke local PDF tooling
+        run: docker run --rm --platform ${{ matrix.platform }} assistant-ci:stage4 sh -lc 'pdfinfo -v && pdftotext -v'

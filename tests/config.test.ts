@@ -80,3 +80,23 @@ test('transcription remote endpoint requires TLS/key and validates limits', () =
   assert.equal(local.transcription.enabled, true);
   assert.equal(local.transcription.apiKey, undefined);
 });
+
+test('document ingestion is local, disabled by default and uses conservative limits', () => {
+  const config = loadConfig({});
+  assert.equal(config.documents.enabled, false);
+  assert.equal(config.documents.maxBytes, 10 * 1024 * 1024);
+  assert.equal(config.documents.maxPages, 50);
+  assert.equal(config.documents.maxTextChars, 100_000);
+  assert.equal(config.documents.timeoutMs, 20_000);
+
+  const enabled = loadConfig({ DOCUMENTS_ENABLED: 'true' });
+  assert.equal(enabled.documents.enabled, true);
+});
+
+test('document ingestion validates byte, page, text and timeout bounds even while disabled', () => {
+  assert.throws(() => loadConfig({ DOCUMENTS_MAX_BYTES: '100' }), /DOCUMENTS_MAX_BYTES/);
+  assert.throws(() => loadConfig({ DOCUMENTS_MAX_PAGES: '0' }), /DOCUMENTS_MAX_PAGES/);
+  assert.throws(() => loadConfig({ DOCUMENTS_MAX_PAGES: '201' }), /DOCUMENTS_MAX_PAGES/);
+  assert.throws(() => loadConfig({ DOCUMENTS_MAX_TEXT_CHARS: '99' }), /DOCUMENTS_MAX_TEXT_CHARS/);
+  assert.throws(() => loadConfig({ DOCUMENTS_TIMEOUT_MS: '999' }), /DOCUMENTS_TIMEOUT_MS/);
+});

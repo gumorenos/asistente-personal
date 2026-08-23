@@ -1,7 +1,7 @@
 import type { AppDatabase } from './db.ts';
 import { compileFtsQuery } from '../search/fts-query.ts';
 
-export type LocalMemorySource = 'message' | 'note' | 'reminder' | 'expense';
+export type LocalMemorySource = 'message' | 'note' | 'reminder' | 'expense' | 'document';
 
 export interface LocalMemorySearchResult {
   source: LocalMemorySource;

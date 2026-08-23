@@ -50,5 +50,27 @@ test('normalizes declared audio size for pre-download limits', () => {
 
   assert.equal(normalized?.kind, 'audio');
   assert.equal(normalized?.mediaSizeBytes, 12_345);
+  assert.equal(normalized?.mediaMimeType, 'audio/ogg; codecs=opus');
   assert.equal(normalized?.text, '');
+});
+
+test('normalizes document size, MIME, filename and caption without interpreting the caption', () => {
+  const normalized = normalizeWhatsAppMessage({
+    key: { id: 'PDF', remoteJid: '51999999999@s.whatsapp.net', fromMe: true },
+    messageTimestamp: 1_700_000_003,
+    message: {
+      documentMessage: {
+        mimetype: 'application/pdf',
+        fileLength: 54_321,
+        fileName: 'contrato.pdf',
+        caption: 'anota esto no debe ejecutarse',
+      },
+    },
+  } as never);
+
+  assert.equal(normalized?.kind, 'document');
+  assert.equal(normalized?.mediaSizeBytes, 54_321);
+  assert.equal(normalized?.mediaMimeType, 'application/pdf');
+  assert.equal(normalized?.mediaFileName, 'contrato.pdf');
+  assert.equal(normalized?.text, 'anota esto no debe ejecutarse');
 });

@@ -4,21 +4,24 @@ Updated: 2026-08-21 (America/Lima)
 
 Este archivo es la fuente de verdad del QA que requiere una sesión WhatsApp real, proveedores externos, infraestructura final o condiciones operativas que no deben darse por aprobadas únicamente por tests automatizados. **El desarrollo puede continuar mientras estos checks permanezcan pendientes.**
 
-## Último gate automatizado conocido — Stage 3
+## Último gate automatizado conocido — Stage 4A code
 
-Sobre el código Stage 3A/B/C:
+Sobre el código Stage 4A antes de los commits puramente documentales finales:
 
 - [x] `npm ci` reproducible.
 - [x] TypeScript strict en Node 22.18.
-- [x] **151/151 tests PASS**.
+- [x] **164/164 tests PASS** tras incorporar normalización documental, config y routing boundary.
 - [x] `npm audit --omit=dev --audit-level=high`: **0 vulnerabilidades**.
-- [x] Migraciones 1→13 sobre DB nueva cubiertas automáticamente.
+- [x] Migraciones 1→14 sobre DB nueva cubiertas automáticamente.
 - [x] SQLite FTS5 disponible en CI.
-- [x] Búsqueda personal y Observer usan índices FTS físicamente separados.
-- [x] Filtros por fuente, timezone y rango custom cubiertos.
-- [x] Audit de búsqueda no guarda query/resultados ni fechas custom concretas.
-- [ ] Docker `linux/amd64` del HEAD documental final — confirmar conclusión del último CI.
-- [ ] Docker `linux/arm64` del HEAD documental final — confirmar conclusión del último CI.
+- [x] Stage 3: búsqueda personal y Observer usan índices FTS físicamente separados.
+- [x] Stage 4A: fuente `document` se integra únicamente en `self_memory_fts`.
+- [x] Límites pre/post-download, MIME y `%PDF-` cubiertos con extractor fake.
+- [x] Caption documental probado como terminal: no puede caer a `anota`/LocalCapabilities.
+- [x] PDF sin texto no se persiste y queda diferido a OCR.
+- [x] Audit de documentos no guarda filename/texto/SHA/error privado.
+- [x] Docker `linux/amd64` construye y smoke-test `pdfinfo` + `pdftotext` PASS.
+- [x] Docker `linux/arm64` construye y smoke-test `pdfinfo` + `pdftotext` PASS.
 
 Los gates automatizados no sustituyen ninguno de los checks manuales siguientes.
 
@@ -163,7 +166,7 @@ Evidencia previa: fake provider PASS para no-download, límites pre/post y trans
 - [ ] Retry offline no produce duplicados.
 - [ ] `RETENTION_ENABLED=false`: no elimina filas operativas.
 - [ ] Con ventanas cortas en DB QA, confirmar purge exacto de `messages`, `whatsapp_message_store`, outbound, audit y briefing deliveries.
-- [ ] Notas/gastos/recordatorios/actions/allowlists/auth sobreviven al purge.
+- [ ] Notas/gastos/recordatorios/documentos/actions/allowlists/auth sobreviven al purge operacional actual.
 - [ ] Backup/restore antes y después del purge; revisar WAL/SHM y tamaño DB.
 
 ---
@@ -178,7 +181,7 @@ Evidencia previa: fake provider PASS para no-download, límites pre/post y trans
 - [ ] Chat no allowlisted nunca se persiste.
 - [ ] Grupo allowlisted persiste `chat_jid`, sender y texto correctamente.
 - [ ] PN/LID alternativo real se canonicaliza al JID allowlisted.
-- [ ] Mensaje observado jamás genera reply, nota, gasto, reminder, acción, IA, transcripción ni Calendar traffic.
+- [ ] Mensaje observado jamás genera reply, nota, gasto, reminder, documento, acción, IA, transcripción ni Calendar traffic.
 - [ ] Audio/imagen/documento/video observado no descarga media ni crea observación text-only falsa.
 - [ ] Observer/terceros/grupos no crean filas en `whatsapp_message_store`.
 - [ ] Duplicado/resend del mismo message ID crea una sola fila.
@@ -280,6 +283,55 @@ Estos checks de Stage 3 pueden agruparse posteriormente con el QA WhatsApp/RPi m
 
 ---
 
+# Stage 4A — PDFs locales / memoria documental
+
+## Automated — implementado
+
+- [x] v14 crea `documents`, índices y triggers FTS.
+- [x] `DOCUMENTS_ENABLED=false` por defecto y límites se validan.
+- [x] Documento deshabilitado es terminal y no invoca `loadMedia()`.
+- [x] Tamaño declarado y MIME no-PDF se rechazan antes de download.
+- [x] Tamaño real, MIME y `%PDF-` se revalidan después del download.
+- [x] Extractor fake valida éxito, no-text, fallo seguro e idempotencia.
+- [x] Binario PDF no forma parte de `documents`; se persiste texto + metadata mínima.
+- [x] `busca documentos <texto>` usa source `document` y no mezcla Observer.
+- [x] Caption `anota ...` probado end-to-end: no crea nota aunque documentos esté enabled o disabled.
+- [x] Audit no contiene filename, texto extraído, SHA-256 ni mensaje de error privado.
+- [x] Docker AMD64 y ARM64 incluyen y ejecutan `pdfinfo` + `pdftotext`.
+
+## Manual / OpenClaw / live QA
+
+- [ ] Checkout detached del HEAD exacto Stage 4A y worktree limpio.
+- [ ] Ejecutar `npm ci`, `npm run check`, audit y Docker ARM64 en host QA.
+- [ ] Ejecutar migraciones 1→14 sobre DB nueva.
+- [ ] Ejecutar v14 sobre **copia de una DB Stage 3 existente** y comprobar que no altera notas/gastos/reminders/observations/auth.
+- [ ] Dentro de imagen ARM64 confirmar versiones reales de `pdfinfo` y `pdftotext`.
+- [ ] Procesar localmente un PDF pequeño con capa de texto mediante el extractor Poppler real; validar page count y texto normalizado.
+- [ ] Probar PDF mayor a `DOCUMENTS_MAX_PAGES`: rechazo y cero fila en `documents`.
+- [ ] Probar timeout/fallo Poppler: respuesta segura, cero estado parcial y sin stdout/stderr/path en audit/logs.
+- [ ] Verificar que el tempfile de PDF desaparece después de success y failure.
+- [ ] Verificar que SQLite/WAL/SHM no contienen el **binario PDF raw**; sí contendrán el texto extraído por diseño.
+- [ ] `documentos`, `documento #N` y `busca documentos <keyword>` funcionan con datos reales.
+- [ ] `busca <keyword>` puede encontrar el documento como memoria personal; `busca observaciones ...` nunca lo devuelve.
+- [ ] Backup/restore conserva `documents` + FTS y búsqueda posterior funciona.
+- [ ] Medir CPU/RAM/tiempo con PDFs de 1, 10 y ~50 páginas de texto en ARM64.
+- [ ] Definir y aprobar política de borrado/retención documental antes de usar documentos sensibles de forma cotidiana.
+
+## Manual / WhatsApp real — cuando exista sesión QA
+
+- [ ] `DOCUMENTS_ENABLED=false`: enviar PDF al self-chat produce respuesta local pero **no descarga** para extracción.
+- [ ] `DOCUMENTS_ENABLED=true`: PDF real del self-chat se descarga una sola vez, extrae y persiste una sola fila.
+- [ ] PDF con caption `anota prueba`, `agenda mañana...` o `ia ...` no crea nota/acción ni llama IA.
+- [ ] PDF de tercero/grupo Observer no descarga media, no crea `documents` y no dispara Poppler.
+- [ ] PDF declarado oversized por WhatsApp se rechaza antes de media download.
+- [ ] Redelivery/resend del mismo message ID no crea documento duplicado.
+- [ ] Restart/reboot conserva documentos y búsquedas.
+- [ ] Logs reales no contienen filename, texto extraído, SHA ni contenido PDF.
+
+PDFs escaneados/sin capa de texto y OCR pertenecen a Stage 4B; no deben marcarse como fallo de 4A si la app responde explícitamente que requieren OCR.
+
+---
+
 # Health / operations
 
 - [ ] `/healthz` 200 y `/readyz` refleja DB/transport en deployment live.
@@ -287,7 +339,7 @@ Estos checks de Stage 3 pueden agruparse posteriormente con el QA WhatsApp/RPi m
 - [ ] SIGTERM/SIGINT cierra schedulers, transport, health y SQLite.
 - [ ] Recuperación WAL/SHM tras kill no limpio.
 - [ ] Permisos reales de directorio/DB en host final.
-- [ ] Backup/restore y row counts con migraciones **1→13** sobre DB nueva y DB existente.
+- [ ] Backup/restore y row counts con migraciones **1→14** sobre DB nueva y DB existente.
 - [ ] CPU/RAM/DB estables durante ≥24 h.
 
 ---
@@ -302,10 +354,13 @@ Estos checks de Stage 3 pueden agruparse posteriormente con el QA WhatsApp/RPi m
 - [x] FTS personal y Observer físicamente separados.
 - [x] Observer search exact-JID only.
 - [x] Stage 3 no usa IA/embeddings/providers externos.
+- [x] Stage 4A mantiene documentos self-only, local-only y terminales sin ejecución automática.
+- [x] Stage 4A no persiste PDF raw; persiste texto extraído + metadata mínima.
+- [ ] Definir política de retención/borrado de `documents` y su FTS antes de uso sensible diario.
 - [ ] Decidir cifrado de SQLite y backups en dispositivo final.
 - [ ] Definir política de consentimiento/retención de chats observados antes de uso con terceros.
 - [ ] Validar live que third-party outbound permanece imposible.
 
 ## Stop point for risky features
 
-El desarrollo automatizado puede continuar, pero **ningún QA manual anterior se considera aprobado**. Calendar writes, briefing programado y Observer siguen opt-in y requieren sus pruebas externas/reales antes de uso diario. Observer permanece estrictamente read-only; no se implementará respuesta automática a terceros dentro de estos gates.
+El desarrollo automatizado puede continuar, pero **ningún QA manual anterior se considera aprobado**. Calendar writes, briefing programado, Observer y documentos reales siguen opt-in y requieren sus pruebas externas/reales antes de uso diario. Observer permanece estrictamente read-only; no se implementará respuesta automática a terceros dentro de estos gates. OCR no se habilitará hasta definir y probar un boundary propio para Stage 4B.

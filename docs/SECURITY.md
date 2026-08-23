@@ -77,7 +77,7 @@
 5. `RETENTION_ENABLED=false` por defecto.
 6. La retención operacional purga normalized self-chat messages, `whatsapp_message_store`, outbound IDs, audit y briefing deliveries.
 7. El retry store usa `MESSAGE_RETENTION_DAYS` cuando retención está habilitada.
-8. No purga notas, gastos, recordatorios, action requests, allowlists ni credenciales.
+8. No purga notas, gastos, recordatorios, documentos, action requests, allowlists ni credenciales.
 
 ## Stage 2F — Observer read-only rules
 
@@ -97,8 +97,8 @@ Observer introduce lectura limitada de chats de terceros/grupos, pero **no intro
 12. `ObserverRetentionScheduler` aplica esa retención aunque `RETENTION_ENABLED=false`.
 13. Audit del purge almacena solo counts, no JID/label/texto.
 14. Errores Observer se loguean sin contenido/JID.
-15. Ningún mensaje observado puede crear nota, gasto, reminder, proposal, approval o Calendar write.
-16. Ningún mensaje observado puede invocar IA/transcripción automáticamente.
+15. Ningún mensaje observado puede crear nota, gasto, reminder, documento, proposal, approval o Calendar write.
+16. Ningún mensaje observado puede invocar IA/transcripción/extracción documental automáticamente.
 17. Ningún componente Observer expone o recibe `sendText()`.
 18. Observer/ignored traffic retorna antes del `whatsapp_message_store`, evitando una segunda copia raw del contenido observado.
 19. No hay respuestas automáticas a terceros/grupos dentro de este stage.
@@ -119,7 +119,7 @@ Observer introduce lectura limitada de chats de terceros/grupos, pero **no intro
 ## Stage 3 — local memory/search rules
 
 1. **Physically separate indexes.** `self_memory_fts` y `observation_fts` son tablas FTS5 distintas; la búsqueda personal nunca consulta el índice Observer.
-2. **Authorized personal sources only.** `self_memory_fts` contiene mensajes que ya pasaron el self-chat guard, notas, recordatorios y gastos locales.
+2. **Authorized personal sources only.** `self_memory_fts` contiene mensajes que ya pasaron el self-chat guard, notas, recordatorios, gastos y documentos locales indexados.
 3. **Observer remains exact-JID.** `ObserverSearchCapability` exige un JID válido ya presente en `observed_chats` y añade `chat_jid = ?` además del `MATCH` FTS.
 4. **No global Observer search.** No existe endpoint/comando para consultar simultáneamente todos los chats observados.
 5. **Bounded literal FTS.** El compilador limita query/tokens y transforma el input en términos literales/prefix; no pasa operadores FTS suministrados por el usuario.
@@ -127,11 +127,33 @@ Observer introduce lectura limitada de chats de terceros/grupos, pero **no intro
 7. **Audit minimization.** `memory.search`/`observer.search` guardan counts/tipo de scope/hash cuando corresponde, nunca query ni resultados.
 8. **Custom date privacy.** Las fechas concretas de `desde/hasta` se usan para filtrar localmente pero no se copian al metadata de audit; solo `temporalScope=custom`.
 9. **Filters narrow authority only.** Filtros de fuente y fecha solo reducen el conjunto ya autorizado; nunca incorporan otro dominio.
-10. **Timezone reuse.** `hoy/semana/mes` usa el mismo utilitario timezone-aware que gastos; no hay lógica de fecha paralela menos validada.
-11. **Retention synchronization.** Al eliminar messages/observations base, triggers eliminan sus entradas FTS; no quedan resultados huérfanos de esos dominios.
+10. **Timezone reuse.** `hoy/semana/mes` usa el mismo utilitario timezone-aware que gastos.
+11. **Retention synchronization.** Al eliminar messages/observations base, triggers eliminan sus entradas FTS.
 12. **Current command exclusion.** La búsqueda personal excluye por `message_id` el comando `busca ...` que acaba de persistirse.
 13. **Bounded output.** La capability actual devuelve máximo 5 resultados y limita/trunca el texto total.
-14. **Observer temporal expansion deferred.** Stage 3 no agrega rangos temporales a Observer; el boundary permanece deliberadamente más estrecho.
+14. **Observer temporal expansion deferred.** Stage 3 no agrega rangos temporales a Observer.
+
+## Stage 4A — local PDF rules
+
+1. `DOCUMENTS_ENABLED=false` por defecto.
+2. Solo documentos que ya pasaron el self-chat guard pueden recibir un lazy `loadMedia()` documental.
+3. Observer retorna antes de ese loader; documentos de terceros/grupos observados nunca se descargan por Stage 4A.
+4. `DocumentCapability` es la primera capability y todo `kind=document` es terminal. Caption/texto nunca cae a `LocalCapabilities`, Calendar, IA ni otras capabilities.
+5. El tamaño declarado se valida antes de download; el tamaño real se valida nuevamente después.
+6. MIME declarado/real debe ser `application/pdf` y los bytes deben comenzar con `%PDF-`.
+7. `pdfinfo` valida page count antes de `pdftotext`; `DOCUMENTS_MAX_PAGES` limita documentos complejos.
+8. `pdftotext` se invoca mediante `execFile`, no shell; recibe timeout, `SIGKILL` y `maxBuffer` limitado.
+9. El PDF existe solo en memoria y en un directorio temporal privado durante extracción; `finally` intenta eliminarlo siempre.
+10. La aplicación nunca persiste el PDF raw. `documents` guarda solo texto extraído + metadata mínima.
+11. PDF sin capa de texto no se persiste; OCR queda explícitamente fuera de 4A.
+12. El texto extraído no se reinyecta como comando ni se manda automáticamente a IA/proveedores.
+13. La fuente FTS `document` vive solo en `self_memory_fts`; nunca en `observation_fts`.
+14. `message_id` hace la persistencia idempotente ante redelivery de la misma entrada.
+15. Audit de ingestión puede guardar bytes/pages/outputChars/truncated/extractor/errorType, pero nunca filename, texto, PDF bytes, SHA-256, stdout/stderr o caption.
+16. Errores de extractor se devuelven de forma genérica; paths/error text de Poppler no se muestran al usuario ni se copian al audit.
+17. Configuración acota bytes, páginas, texto y timeout incluso cuando la feature está deshabilitada.
+18. Docker incluye Poppler y CI debe comprobar `pdfinfo`/`pdftotext` en amd64 y arm64.
+19. Los documentos persistidos aún no tienen una política automática de expiración propia; debe definirse antes de almacenar material sensible de forma cotidiana.
 
 ## Important limitations
 
@@ -141,27 +163,29 @@ Un proveedor remoto de IA recibe el prompt explícito después de `ia`/`ai`. Un 
 
 Observer puede almacenar contenido de terceros cuando está activado y el chat fue allowlisted. Antes de usarlo con conversaciones reales deben definirse necesidad, consentimiento aplicable, minimización y retención apropiada.
 
+PDFs pueden contener contenido malformado o sensible. Stage 4A reduce exposición mediante self-only, límites, proceso hijo local y no persistencia raw, pero Poppler sigue siendo un parser de archivos no confiables y debe mantenerse actualizado. El texto persistido hereda la sensibilidad del documento original.
+
 ## Secrets
 
 Tratar como secretos:
 
-- `data/assistant.db`, WAL/SHM y backups; incluye auth, self-chat retry contents, índices FTS y, si Observer está activo, observations;
+- `data/assistant.db`, WAL/SHM y backups; incluye auth, self-chat retry contents, índices FTS, documentos extraídos y, si Observer está activo, observations;
 - `.env`;
 - pairing codes;
 - `AI_API_KEY`;
 - `TRANSCRIPTION_API_KEY`;
 - `GOOGLE_CALENDAR_CLIENT_SECRET`;
 - `GOOGLE_CALENDAR_REFRESH_TOKEN`;
-- cualquier backup que contenga `observations`, `observation_fts`, `self_memory_fts` o `whatsapp_message_store`.
+- cualquier backup que contenga `documents`, `observations`, `observation_fts`, `self_memory_fts` o `whatsapp_message_store`.
 
 ## Permission levels
 
 - **Level 0:** lectura/búsqueda/resumen local del propio estado.
-- **Level 1:** notas, reminders y gastos locales.
+- **Level 1:** notas, reminders, gastos y documentos locales.
 - **Level 1E:** envío externo explícito de texto/audio para obtener respuesta sin acciones.
-- **Level 1O:** Observer read-only: persistencia/búsqueda local minimizada de chats expresamente allowlisted; cero outbound.
+- **Level 1O:** Observer read-only: persistencia/búsqueda local minimizada de chats expresamente allowlisted; cero outbound/media download.
 - **Level 1P:** propuesta/consentimiento local de una acción externa.
 - **Level 2:** modificación externa como Google Calendar; requiere enable explícito + approval + ejecución separada + revalidación + idempotencia.
 - **Level 3:** comunicación a terceros. **No implementada.**
 
-El sistema actual implementa hasta Level 2 para Calendar bajo doble acto explícito. Observer permanece Level 1O y no habilita Level 3.
+El sistema actual implementa hasta Level 2 para Calendar bajo doble acto explícito. Observer permanece Level 1O y no habilita Level 3. Stage 4A permanece Level 1 local y nunca escala autoridad por el contenido de un documento.

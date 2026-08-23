@@ -11,6 +11,7 @@ import { AudioTranscriptionCapability } from './capabilities/audio-transcription
 import { BriefingCapability } from './capabilities/briefing-capability.ts';
 import { CalendarExecutionCapability } from './capabilities/calendar-execution-capability.ts';
 import { CalendarProposalCapability } from './capabilities/calendar-proposal-capability.ts';
+import { DocumentCapability } from './capabilities/document-capability.ts';
 import { LocalCapabilities } from './capabilities/local-capabilities.ts';
 import { MemorySearchCapability } from './capabilities/memory-search-capability.ts';
 import { ObserverAdminCapability } from './capabilities/observer-admin-capability.ts';
@@ -26,6 +27,7 @@ import { ActionRequestRepository } from './database/action-request-repository.ts
 import { AuditRepository } from './database/audit-repository.ts';
 import { BriefingDeliveryRepository } from './database/briefing-delivery-repository.ts';
 import { AppDatabase } from './database/db.ts';
+import { DocumentRepository } from './database/document-repository.ts';
 import { ExpenseRepository } from './database/expense-repository.ts';
 import { LocalMemorySearchRepository } from './database/local-memory-search-repository.ts';
 import { MessageRepository } from './database/message-repository.ts';
@@ -33,6 +35,8 @@ import { NoteRepository } from './database/note-repository.ts';
 import { ObservedChatRepository } from './database/observed-chat-repository.ts';
 import { ReminderRepository } from './database/reminder-repository.ts';
 import { RetentionRepository } from './database/retention-repository.ts';
+import { PopplerPdfExtractor } from './documents/poppler-pdf-extractor.ts';
+import type { DocumentExtractor } from './documents/types.ts';
 import { ObserverService } from './observer/observer-service.ts';
 import { SqliteObservationSink } from './observer/sqlite-observation-sink.ts';
 import { BriefingScheduler } from './scheduler/briefing-scheduler.ts';
@@ -51,6 +55,7 @@ const messages = new MessageRepository(database);
 const notes = new NoteRepository(database);
 const expenses = new ExpenseRepository(database);
 const reminders = new ReminderRepository(database);
+const documents = new DocumentRepository(database);
 const audit = new AuditRepository(database);
 const actions = new ActionRequestRepository(database);
 const actionExecutions = new ActionExecutionRepository(database);
@@ -90,6 +95,11 @@ if (config.transcription.enabled) {
     baseUrl: config.transcription.baseUrl!, apiKey: config.transcription.apiKey,
     model: config.transcription.model!, timeoutMs: config.transcription.timeoutMs,
   });
+}
+
+let documentExtractor: DocumentExtractor | undefined;
+if (config.documents.enabled) {
+  documentExtractor = new PopplerPdfExtractor();
 }
 
 let calendarExecutor: CalendarActionExecutor | undefined;
@@ -136,6 +146,15 @@ if (config.observer.enabled) {
 }
 
 const capabilities: Capability[] = [
+  // Document messages are terminal before local command parsing. A PDF caption can
+  // never be interpreted as `anota`, `agenda`, etc.
+  new DocumentCapability(documents, audit, documentExtractor, {
+    enabled: config.documents.enabled,
+    maxBytes: config.documents.maxBytes,
+    maxPages: config.documents.maxPages,
+    maxTextChars: config.documents.maxTextChars,
+    timeoutMs: config.documents.timeoutMs,
+  }),
   new LocalCapabilities(notes, reminders, expenses, audit, config.timeZone),
   new BriefingCapability(briefingService),
   new ObserverAdminCapability(observedChats, audit, config.observer.enabled),
@@ -184,6 +203,8 @@ try {
     aiProvider: config.ai.enabled ? config.ai.provider : 'disabled',
     transcriptionEnabled: config.transcription.enabled,
     transcriptionProvider: config.transcription.enabled ? config.transcription.provider : 'disabled',
+    documentsEnabled: config.documents.enabled,
+    documentExtractor: config.documents.enabled ? 'poppler' : 'disabled',
     calendarWritesEnabled: config.calendar.enabled,
     calendarProvider: config.calendar.enabled ? config.calendar.provider : 'disabled',
     dailyBriefingEnabled: config.briefing.enabled,

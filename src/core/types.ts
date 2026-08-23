@@ -19,6 +19,8 @@ export interface IncomingMessage {
   fromMe: boolean;
   isGroup: boolean;
   mediaSizeBytes?: number;
+  mediaMimeType?: string;
+  mediaFileName?: string;
   loadMedia?: MediaLoader;
 }
 
