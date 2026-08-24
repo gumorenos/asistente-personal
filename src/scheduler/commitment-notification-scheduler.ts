@@ -47,24 +47,36 @@ export class CommitmentNotificationScheduler {
     this.running = true;
     try {
       const now = this.now();
-      const due = this.commitments.listDueUnnotified(now.toISOString(), MAX_BATCH);
+      const nowIso = now.toISOString();
+      const due = this.commitments.listDueUnnotified(nowIso, MAX_BATCH);
 
-      for (const commitment of due) {
+      for (const queued of due) {
+        const current = this.commitments.getById(queued.id);
+        if (
+          !current
+          || current.status !== 'open'
+          || current.notifiedAt
+          || !current.dueAt
+          || current.dueAt > nowIso
+        ) {
+          continue;
+        }
+
         try {
           await this.transport.sendText(
             this.destinationJid,
-            `🤝 Compromiso vencido: #${commitment.id} ${commitment.body}`,
+            `🤝 Compromiso vencido: #${current.id} ${current.body}`,
           );
-          if (this.commitments.markNotified(commitment.id, now.toISOString())) {
+          if (this.commitments.markNotified(current.id, nowIso)) {
             this.audit.record({
               eventType: 'commitment.notified',
               entityType: 'commitment',
-              entityId: String(commitment.id),
+              entityId: String(current.id),
             });
           }
         } catch (error) {
           logger.warn('Could not deliver commitment notification; it remains eligible for retry', {
-            commitmentId: commitment.id,
+            commitmentId: current.id,
             error: error instanceof Error ? error.name : 'UnknownError',
           });
         }
