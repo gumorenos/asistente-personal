@@ -17,16 +17,27 @@ export interface SemanticIndexResult {
 }
 
 export class DocumentSemanticService {
+  private readonly documents: DocumentRepository;
+  private readonly semanticRepository: DocumentSemanticRepository;
+  private readonly audit: AuditRepository;
+  private readonly provider: EmbeddingProvider | undefined;
+  private readonly config: DocumentSemanticServiceConfig;
+
   constructor(
-    private readonly documents: DocumentRepository,
-    private readonly semanticRepository: DocumentSemanticRepository,
-    private readonly audit: AuditRepository,
-    private readonly provider: EmbeddingProvider | undefined,
-    private readonly config: DocumentSemanticServiceConfig,
+    documents: DocumentRepository,
+    semanticRepository: DocumentSemanticRepository,
+    audit: AuditRepository,
+    provider: EmbeddingProvider | undefined,
+    config: DocumentSemanticServiceConfig,
   ) {
     if (!Number.isInteger(config.embeddingBatchSize) || config.embeddingBatchSize < 1 || config.embeddingBatchSize > 100) {
       throw new Error('Invalid semantic embedding batch size');
     }
+    this.documents = documents;
+    this.semanticRepository = semanticRepository;
+    this.audit = audit;
+    this.provider = provider;
+    this.config = config;
   }
 
   get enabled(): boolean { return this.config.enabled; }
