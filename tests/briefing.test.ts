@@ -6,6 +6,7 @@ import type { IncomingMessage, SendTextResult } from '../src/core/types.ts';
 import { ActionRequestRepository } from '../src/database/action-request-repository.ts';
 import { AuditRepository } from '../src/database/audit-repository.ts';
 import { BriefingDeliveryRepository } from '../src/database/briefing-delivery-repository.ts';
+import { CommitmentRepository } from '../src/database/commitment-repository.ts';
 import { AppDatabase } from '../src/database/db.ts';
 import { ExpenseRepository } from '../src/database/expense-repository.ts';
 import { NoteRepository } from '../src/database/note-repository.ts';
@@ -23,12 +24,13 @@ function setup() {
   const db = new AppDatabase(':memory:');
   const notes = new NoteRepository(db);
   const reminders = new ReminderRepository(db);
+  const commitments = new CommitmentRepository(db);
   const expenses = new ExpenseRepository(db);
   const actions = new ActionRequestRepository(db);
   const audit = new AuditRepository(db);
   const deliveries = new BriefingDeliveryRepository(db);
-  const service = new BriefingService(notes, reminders, expenses, actions, 'America/Lima');
-  return { db, notes, reminders, expenses, actions, audit, deliveries, service };
+  const service = new BriefingService(notes, reminders, commitments, expenses, actions, 'America/Lima');
+  return { db, notes, reminders, commitments, expenses, actions, audit, deliveries, service };
 }
 
 class FakeTransport implements MessageTransport {
@@ -49,16 +51,19 @@ class FakeTransport implements MessageTransport {
   }
 }
 
-test('briefing renders local state without exposing action payload', () => {
-  const { db, notes, reminders, expenses, actions, service } = setup();
+test('briefing renders local state including commitments without exposing action payload', () => {
+  const { db, notes, reminders, commitments, expenses, actions, service } = setup();
   notes.create('llevar documentos');
   reminders.create({ body: 'pagar tarjeta', dueAt: '2026-08-20T15:00:00.000Z', chatId: 'self@s.whatsapp.net' });
+  commitments.create({ body: 'enviar informe', dueAt: '2026-08-19T12:00:00.000Z' });
   expenses.create({ amountMinor: 2500, currency: 'PEN', category: 'comida', description: 'almuerzo', occurredAt: fixedNow.toISOString() });
   actions.create({ actionType: 'calendar.create_event', summary: 'Crear reunión mañana', payload: { secret: 'NO_MOSTRAR' } });
 
   const text = service.render(fixedNow);
   assert.match(text, /llevar documentos/);
   assert.match(text, /pagar tarjeta/);
+  assert.match(text, /enviar informe/);
+  assert.match(text, /vencido/);
   assert.match(text, /S\/ 25\.00/);
   assert.match(text, /Crear reunión mañana/);
   assert.doesNotMatch(text, /NO_MOSTRAR/);
