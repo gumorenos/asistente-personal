@@ -12,7 +12,7 @@ Asistente personal autónomo con WhatsApp como interfaz inicial. El núcleo func
 - **Stage 2E:** briefing personal y retención operacional opt-in implementados.
 - **Stage 2F:** Observer text-only/read-only + lectura/búsqueda local exact-JID implementados; QA WhatsApp real pendiente.
 - **Stage 2G:** Baileys `getMessage`/retry store persistente y PN/LID-aware implementado; recovery real pendiente de QA live.
-- **Stage 3:** memoria/búsqueda local FTS5 sobre mensajes, notas, recordatorios y gastos; Observer físicamente separado.
+- **Stage 3:** memoria/búsqueda local FTS5 sobre mensajes, notas, recordatorios, gastos y compromisos; Observer físicamente separado.
 - **Stage 4A:** ingestión local opt-in de PDFs con capa de texto.
 - **Stage 4B:** OCR local opcional con Tesseract para PDFs escaneados.
 - **Stage 4C:** lifecycle documental, borrado mediante action pipeline y retención documental opt-in.
@@ -21,6 +21,8 @@ Asistente personal autónomo con WhatsApp como interfaz inicial. El núcleo func
 - **Stage 5A:** Google Calendar read-only: agenda + free/busy, independiente de writes.
 - **Stage 5B:** sugerencias deterministas de horarios sobre free/busy; sin IA, acciones ni writes.
 - **Stage 5C:** comprobación exacta de disponibilidad futura; consulta solo el intervalo pedido y no crea acciones/eventos.
+- **Stage 6A:** compromisos personales explícitos, locales y buscables; no hay detección automática de promesas.
+- **Stage 6B:** notificación opt-in al self-chat de compromisos vencidos; retry local y `notified_at`, sin afirmar exactly-once distribuido.
 
 Ningún check manual/live se considera aprobado por los tests automatizados. La fuente de verdad acumulada es [`docs/QA-PENDING.md`](docs/QA-PENDING.md) y cada stage avanzado mantiene su checklist específico.
 
@@ -39,6 +41,8 @@ Ningún check manual/live se considera aprobado por los tests automatizados. La 
 - búsqueda/lectura Observer exige self-chat + JID exacto conocido;
 - `self_memory_fts` y `observation_fts` permanecen separados;
 - ninguna búsqueda local llama IA automáticamente;
+- compromisos se crean únicamente por comandos explícitos del self-chat; Observer nunca se convierte en detector de promesas;
+- notificaciones de compromisos están deshabilitadas por defecto y solo admiten un destino presente en `WHATSAPP_SELF_JIDS`;
 - documentos solo se descargan después del self-chat guard;
 - captions/texto documental son terminales y nunca ejecutan comandos;
 - PDFs se validan por tamaño, MIME y magic header;
@@ -75,6 +79,16 @@ recordatorios
 completa recordatorio #1
 cancela recordatorio #2
 
+compromiso mañana a las 10 enviar informe a Ana
+compromiso revisar presupuesto
+me comprometo a renovar el dominio
+prometí revisar el contrato
+compromisos
+compromisos vencidos
+cumplí compromiso #1
+cancela compromiso #2
+busca compromisos dominio
+
 documentos
 documento #1
 busca documentos contrato
@@ -107,11 +121,12 @@ busca notas presupuesto
 busca mensajes proyecto orion
 busca recordatorios visa
 busca gastos taxi
+busca compromisos dominio
 busca gastos hoy taxi
 busca desde 2026-08-01 hasta 2026-08-20 proyecto
 ```
 
-Fuentes: mensajes self-chat ya autorizados, notas, recordatorios, gastos y documentos indexados. Query y resultados no se guardan en audit; Observer usa su propio índice/comando y siempre un JID exacto.
+Fuentes: mensajes self-chat ya autorizados, notas, recordatorios, gastos, compromisos y documentos indexados. Query y resultados no se guardan en audit; Observer usa su propio índice/comando y siempre un JID exacto.
 
 Ver [`docs/STAGE-3-LOCAL-SEARCH.md`](docs/STAGE-3-LOCAL-SEARCH.md).
 
@@ -222,6 +237,23 @@ CALENDAR_EXACT_AVAILABILITY_ENABLED=false
 
 Requiere Calendar read. `libre mañana a las 10 por 30 minutos` consulta únicamente ese intervalo mediante `freeBusy`. Duración 5–480 min, futuro y horizonte máximo 366 días. Como la consulta es explícita, puede comprobar horas fuera de la ventana laboral configurada. Solo devuelve libre/ocupado; no revela detalles del evento en conflicto y no persiste el resultado.
 
+## Compromisos — Stages 6A/6B
+
+Stage 6A almacena únicamente compromisos que el usuario capture explícitamente desde el self-chat. Puede tener vencimiento o quedar sin fecha; completar/cancelar es un lifecycle local atómico. Los compromisos entran en FTS y briefing, pero no se infieren de Observer ni de conversaciones de terceros.
+
+Stage 6B permite, opcionalmente, enviar una notificación al self-chat cuando un compromiso abierto ya venció:
+
+```env
+COMMITMENT_NOTIFICATIONS_ENABLED=false
+COMMITMENT_NOTIFICATION_DESTINATION_JID=
+```
+
+Al habilitar, `WHATSAPP_ENABLED=true` es obligatorio y el destino debe aparecer exactamente en `WHATSAPP_SELF_JIDS`. El scheduler procesa batches acotados, revalida cada fila antes del envío, persiste `notified_at` tras éxito y reintenta si `sendText()` falla.
+
+No se afirma exactly-once distribuido: existe un crash-window si WhatsApp acepta el mensaje pero el proceso muere antes de persistir `notified_at`. Este riesgo está documentado y debe validarse con la línea QA antes de activar Stage 6B permanentemente.
+
+Ver [`docs/STAGE-6-COMMITMENTS.md`](docs/STAGE-6-COMMITMENTS.md).
+
 ## IA explícita — Stage 2A
 
 Solo el texto tras `ia`/`ai` sale al proveedor. No se adjunta contexto personal automáticamente.
@@ -252,7 +284,7 @@ AUDIT_RETENTION_DAYS=90
 BRIEFING_RETENTION_DAYS=90
 ```
 
-El briefing usa estado local determinista. La retención operacional no borra notas/gastos/reminders/actions ni documentos; Observer y documentos tienen políticas propias.
+El briefing usa estado local determinista, incluidos compromisos abiertos. La retención operacional no borra notas/gastos/reminders/commitments/actions ni documentos; Observer y documentos tienen políticas propias.
 
 ## Observer read-only — Stage 2F
 
@@ -301,19 +333,23 @@ curl http://127.0.0.1:8787/readyz
 - [`docs/OPS-TOOLS.md`](docs/OPS-TOOLS.md)
 - [`docs/STAGE-3-LOCAL-SEARCH.md`](docs/STAGE-3-LOCAL-SEARCH.md)
 - [`docs/STAGE-4-DOCUMENTS.md`](docs/STAGE-4-DOCUMENTS.md)
+- [`docs/STAGE-6-COMMITMENTS.md`](docs/STAGE-6-COMMITMENTS.md)
 - [`docs/QA-PENDING.md`](docs/QA-PENDING.md)
 - [`docs/QA-STAGE-4E-PENDING.md`](docs/QA-STAGE-4E-PENDING.md)
 - [`docs/QA-STAGE-5A-PENDING.md`](docs/QA-STAGE-5A-PENDING.md)
 - [`docs/QA-STAGE-5B-PENDING.md`](docs/QA-STAGE-5B-PENDING.md)
 - [`docs/QA-STAGE-5C-PENDING.md`](docs/QA-STAGE-5C-PENDING.md)
+- [`docs/QA-STAGE-6A-PENDING.md`](docs/QA-STAGE-6A-PENDING.md)
+- [`docs/QA-STAGE-6B-PENDING.md`](docs/QA-STAGE-6B-PENDING.md)
 
 ## Próximos bloques
 
 1. mantener acumulado el QA real de WhatsApp/RPi/Google/proveedores sin convertir tests automatizados en falsos PASS live;
-2. cerrar QA real de documentos/OCR/lifecycle/semantic/Q&A con corpus QA no sensible antes de habilitar documentos personales sensibles;
-3. cerrar QA read-only real de Calendar 5A–5C con un Calendar QA y token de scopes mínimos;
-4. priorizar la siguiente capacidad del asistente que aporte valor sin debilitar el trust boundary (p. ej. nuevas lecturas explícitas o tracking local de compromisos);
-5. mantener OpenClaw, Claude Code, Codex y otros agentes como adaptadores opcionales, nunca como dependencia del producto.
+2. cerrar QA real de Stage 6A/6B con la línea WhatsApp QA, incluyendo restart/retry y el crash-window de notificaciones;
+3. cerrar QA real de documentos/OCR/lifecycle/semantic/Q&A con corpus QA no sensible antes de habilitar documentos personales sensibles;
+4. cerrar QA read-only real de Calendar 5A–5C con un Calendar QA y token de scopes mínimos;
+5. continuar primero con lifecycle/consultas locales de compromisos antes de considerar un detector automático de promesas;
+6. mantener OpenClaw, Claude Code, Codex y otros agentes como adaptadores opcionales, nunca como dependencia del producto.
 
 ## Aviso
 
