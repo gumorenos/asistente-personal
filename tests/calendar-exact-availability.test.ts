@@ -104,6 +104,37 @@ test('Calendar read checks only the exact requested interval and reports free/oc
   ]);
 });
 
+test('exact availability treats interval boundaries as half-open and ignores adjacent busy events', async () => {
+  const provider = new FakeCalendarReadProvider();
+  provider.busy = [
+    { startAt: '2026-08-25T14:00:00.000Z', endAt: '2026-08-25T15:00:00.000Z' },
+    { startAt: '2026-08-25T15:30:00.000Z', endAt: '2026-08-25T16:00:00.000Z' },
+  ];
+  const { read } = configs();
+  const service = new CalendarReadService(provider, read, 'America/Lima', () => fixedNow);
+
+  const result = await service.exactAvailability('2026-08-25T15:00:00.000Z', 30);
+  assert.equal(result.isFree, true);
+  assert.deepEqual(result.busyIntervals, []);
+});
+
+test('exact availability honors an explicit interval outside the configured work window', async () => {
+  const provider = new FakeCalendarReadProvider();
+  const { read } = configs({
+    CALENDAR_READ_DAY_START: '08:00',
+    CALENDAR_READ_DAY_END: '20:00',
+  });
+  const service = new CalendarReadService(provider, read, 'America/Lima', () => fixedNow);
+
+  const result = await service.exactAvailability('2026-08-26T02:00:00.000Z', 30); // 21:00 Lima previous local date
+  assert.equal(result.isFree, true);
+  assert.deepEqual(provider.busyCalls[0], {
+    startAt: '2026-08-26T02:00:00.000Z',
+    endAt: '2026-08-26T02:30:00.000Z',
+    timeZone: 'America/Lima',
+  });
+});
+
 test('exact availability rejects invalid duration, past time and over-366-day horizon before provider work', async () => {
   const provider = new FakeCalendarReadProvider();
   const { read } = configs();
