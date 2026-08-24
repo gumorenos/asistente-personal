@@ -17,10 +17,16 @@ interface MutableHit extends HybridDocumentHit {
 const RRF_K = 60;
 
 export class HybridDocumentSearchService {
+  private readonly lexical: LocalMemorySearchRepository;
+  private readonly semantic: DocumentSemanticService;
+
   constructor(
-    private readonly lexical: LocalMemorySearchRepository,
-    private readonly semantic: DocumentSemanticService,
-  ) {}
+    lexical: LocalMemorySearchRepository,
+    semantic: DocumentSemanticService,
+  ) {
+    this.lexical = lexical;
+    this.semantic = semantic;
+  }
 
   async search(query: string, limit = 5): Promise<HybridDocumentHit[]> {
     const normalized = query.trim();
