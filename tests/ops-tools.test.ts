@@ -100,6 +100,31 @@ test('doctor inspects an existing database without applying writes or requiring 
     assert.equal(report.checks.find((check) => check.name === 'database.fts5')?.status, 'pass');
     assert.equal(report.checks.find((check) => check.name === 'tools.poppler')?.status, 'pass');
     assert.equal(report.checks.find((check) => check.name === 'feature.embeddings')?.detail, 'disabled');
+    assert.equal(report.checks.find((check) => check.name === 'feature.calendar_read')?.detail, 'disabled');
+    assert.equal(report.checks.find((check) => check.name === 'feature.calendar_write')?.detail, 'disabled');
+  });
+});
+
+test('doctor validates and reports Calendar read configuration without network I/O', () => {
+  withTempDir((directory) => {
+    const source = join(directory, 'doctor-calendar-read.db');
+    seedDatabase(source);
+    const report = runDoctor({
+      APP_DB_PATH: source,
+      CALENDAR_READ_ENABLED: 'true',
+      CALENDAR_READ_DAY_START: '09:00',
+      CALENDAR_READ_DAY_END: '18:30',
+      GOOGLE_CALENDAR_CLIENT_ID: 'doctor-client',
+      GOOGLE_CALENDAR_CLIENT_SECRET: 'doctor-secret',
+      GOOGLE_CALENDAR_REFRESH_TOKEN: 'doctor-refresh',
+    });
+
+    assert.equal(report.ok, true);
+    assert.equal(
+      report.checks.find((check) => check.name === 'feature.calendar_read')?.detail,
+      'enabled (09:00-18:30; connectivity not tested)',
+    );
+    assert.equal(report.checks.find((check) => check.name === 'feature.calendar_write')?.detail, 'disabled');
   });
 });
 
@@ -107,6 +132,10 @@ test('doctor fails closed on invalid configuration or missing database', () => {
   const badConfig = runDoctor({ SEMANTIC_ENABLED: 'true' });
   assert.equal(badConfig.ok, false);
   assert.equal(badConfig.checks[0]?.name, 'config');
+
+  const badCalendarRead = runDoctor({ CALENDAR_READ_ENABLED: 'true' });
+  assert.equal(badCalendarRead.ok, false);
+  assert.equal(badCalendarRead.checks[0]?.name, 'config');
 
   const missing = runDoctor({ APP_DB_PATH: '/tmp/assistant-definitely-missing-doctor.db' });
   assert.equal(missing.ok, false);
