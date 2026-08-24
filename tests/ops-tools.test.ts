@@ -15,6 +15,12 @@ function withTempDir<T>(run: (directory: string) => T): T {
   finally { rmSync(directory, { recursive: true, force: true }); }
 }
 
+async function withTempDirAsync<T>(run: (directory: string) => Promise<T>): Promise<T> {
+  const directory = mkdtempSync(join(tmpdir(), 'assistant-ops-'));
+  try { return await run(directory); }
+  finally { rmSync(directory, { recursive: true, force: true }); }
+}
+
 function seedDatabase(path: string): { documentId: number } {
   const db = new AppDatabase(path);
   try {
@@ -43,7 +49,7 @@ function seedDatabase(path: string): { documentId: number } {
 }
 
 test('backup service creates a coherent read-only-verifiable SQLite copy including semantic tables', async () => {
-  await withTempDir(async (directory) => {
+  await withTempDirAsync(async (directory) => {
     const source = join(directory, 'source.db');
     const destination = join(directory, 'backup.db');
     seedDatabase(source);
@@ -64,7 +70,7 @@ test('backup service creates a coherent read-only-verifiable SQLite copy includi
 });
 
 test('backup is an independent snapshot and source mutations do not alter it', async () => {
-  await withTempDir(async (directory) => {
+  await withTempDirAsync(async (directory) => {
     const source = join(directory, 'source.db');
     const destination = join(directory, 'backup.db');
     const { documentId } = seedDatabase(source);
