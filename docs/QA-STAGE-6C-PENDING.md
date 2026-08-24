@@ -7,18 +7,20 @@ Stage 6C agrega vistas temporales locales y reprogramación explícita de compro
 ## Gate automatizado
 
 - [x] TypeScript strict PASS en Node 22.18.
-- [x] Suite completa inicial: 277/277 PASS.
+- [x] Suite completa tras hardening: 279/279 PASS.
 - [x] Runtime dependency audit: 0 vulnerabilidades.
 - [x] Rango temporal del repositorio usa inicio inclusivo / fin exclusivo.
 - [x] Vistas temporales excluyen compromisos completados/cancelados.
 - [x] `compromisos hoy` usa límites locales `America/Lima`.
 - [x] `compromisos semana` / `esta semana` usa semana local lunes→lunes.
 - [x] `compromisos sin fecha` devuelve solo abiertos sin `due_at` y en orden determinista.
+- [x] Vistas compactan bodies largos y respuesta total queda <=3500 caracteres.
 - [x] Reprogramación exige fecha/hora futura interpretable.
 - [x] Reprogramación solo modifica un compromiso `open`.
 - [x] Completados/cancelados no se reabren implícitamente.
-- [x] Reprogramar limpia `notified_at` cuando corresponde.
-- [x] Audit de reprogramación no contiene body ni nueva fecha exacta.
+- [x] Reprogramar a un vencimiento distinto limpia `notified_at` cuando corresponde.
+- [x] Reprogramar al mismo vencimiento es no-op, conserva `notified_at` y no genera audit de reprogramación.
+- [x] Audit de reprogramación efectiva no contiene body ni nueva fecha exacta.
 - [x] Wiring real: `CommitmentCapability` delega comandos Stage 6C antes del handling legacy.
 - [x] Stage 6C no crea `action_request`.
 - [ ] Docker `linux/amd64` PASS en HEAD documental final.
@@ -38,18 +40,21 @@ Puede hacerse desde el self-chat autorizado; no requiere proveedores externos sa
 - [ ] Fecha pasada/inválida no modifica el compromiso.
 - [ ] ID inexistente devuelve error local y no crea estado nuevo.
 - [ ] Intentar reprogramar `completed`/`cancelled` no lo reabre.
+- [ ] Reprogramar al mismo vencimiento conserva el estado de notificación y responde que ya estaba programado.
 - [ ] Reinicio/reboot conserva el nuevo vencimiento.
 - [ ] Las vistas siguen correctas alrededor de medianoche America/Lima.
 - [ ] Verificar cambio domingo→lunes para límites semanales.
+- [ ] Con bodies largos, las respuestas siguen legibles y no exceden el límite esperado.
 
 ## Interacción Stage 6B — PENDIENTE
 
 Solo si se habilitan notificaciones en la línea WhatsApp QA.
 
-- [ ] Un compromiso ya notificado y luego reprogramado queda con `notified_at=NULL`.
+- [ ] Un compromiso ya notificado y luego reprogramado a un vencimiento distinto queda con `notified_at=NULL`.
 - [ ] Reprogramarlo a futuro NO dispara aviso inmediatamente.
 - [ ] Al alcanzar el nuevo vencimiento recibe una notificación normal de 6B.
 - [ ] Después de esa entrega vuelve a quedar marcado y no se repite en steady state.
+- [ ] Reprogramar un compromiso ya notificado al mismo vencimiento NO lo rearma ni causa duplicado.
 - [ ] Reprogramar mientras el scheduler procesa otros compromisos no genera una entrega con el vencimiento viejo después de que la actualización sea visible.
 - [ ] Revisar nuevamente el crash-window documentado de 6B; Stage 6C no lo elimina.
 
