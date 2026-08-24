@@ -14,9 +14,10 @@ interface EmbeddingResponse {
 
 function validateVector(value: unknown, dimensions: number): number[] {
   if (!Array.isArray(value) || value.length !== dimensions) throw new Error('Embedding response dimension mismatch');
-  const vector = value.map((item) => Number(item));
-  if (vector.some((item) => !Number.isFinite(item))) throw new Error('Embedding response contains invalid values');
-  return vector;
+  if (value.some((item) => typeof item !== 'number' || !Number.isFinite(item))) {
+    throw new Error('Embedding response contains invalid values');
+  }
+  return value as number[];
 }
 
 export class OpenAICompatibleEmbeddingProvider implements EmbeddingProvider {
