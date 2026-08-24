@@ -124,7 +124,7 @@ test('invalid or empty commitment is rejected before persistence and plain text 
   try {
     assert.equal(await capability.handle(message('hola')), undefined);
     const empty = await capability.handle(message('compromiso'));
-    assert.match(empty?.reply ?? '', /texto del compromiso/);
+    assert.match(empty?.reply ?? '', /vacío o es demasiado largo/);
     const invalid = await capability.handle(message('compromiso hoy a las 8 enviar informe'));
     assert.match(invalid?.reply ?? '', /fecha\/hora futura válida/);
     assert.equal(commitments.listOpen().length, 0);
