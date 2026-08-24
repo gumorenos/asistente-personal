@@ -23,6 +23,7 @@ export function routeMessage(message: IncomingMessage): RouteResult {
         '• gastos hoy / semana / mes / resumen gastos mes',
         '• recuérdame <fecha/hora> <texto> / recordatorios',
         '• compromiso <fecha/hora opcional> <texto> — tracking local explícito',
+        '• resumen compromisos — conteos y prioridades locales',
         '• compromisos / compromisos vencidos / compromisos hoy / compromisos semana / compromisos sin fecha',
         '• reprograma compromiso #N <nueva fecha/hora>',
         '• completa compromiso #N / cancela compromiso #N',
