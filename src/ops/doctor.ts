@@ -58,7 +58,7 @@ function inspectDatabase(config: AppConfig, checks: DoctorCheck[]): void {
       | { version: number | bigint }
       | undefined;
     const version = Number(migration?.version ?? 0);
-    add(checks, 'database.migrations', version >= 15 ? 'pass' : 'fail', `schema v${version}`);
+    add(checks, 'database.migrations', version >= 16 ? 'pass' : 'fail', `schema v${version}`);
 
     const journal = db.prepare('PRAGMA journal_mode').get() as { journal_mode?: string } | undefined;
     add(checks, 'database.wal', journal?.journal_mode?.toLowerCase() === 'wal' ? 'pass' : 'warn', journal?.journal_mode ?? 'unknown');
@@ -82,6 +82,9 @@ function inspectDatabase(config: AppConfig, checks: DoctorCheck[]): void {
     const chunks = db.prepare('SELECT COUNT(*) AS value FROM document_chunks').get() as { value: number | bigint } | undefined;
     const embeddings = db.prepare('SELECT COUNT(*) AS value FROM document_embeddings').get() as { value: number | bigint } | undefined;
     add(checks, 'semantic.storage', 'pass', `${Number(chunks?.value ?? 0)} chunks / ${Number(embeddings?.value ?? 0)} embeddings`);
+
+    const commitmentRows = db.prepare('SELECT COUNT(*) AS value FROM commitments').get() as { value: number | bigint } | undefined;
+    add(checks, 'local.commitments', 'pass', `${Number(commitmentRows?.value ?? 0)} commitment row(s)`);
 
     const creds = db.prepare('SELECT COUNT(*) AS value FROM whatsapp_auth_creds').get() as { value: number | bigint } | undefined;
     const credentialCount = Number(creds?.value ?? 0);
@@ -146,6 +149,7 @@ export function runDoctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
   add(checks, 'feature.transcription', 'pass', config.transcription.enabled ? 'enabled (connectivity not tested)' : 'disabled');
   add(checks, 'feature.semantic', 'pass', config.semantic.enabled ? 'enabled' : 'disabled');
   add(checks, 'feature.embeddings', 'pass', config.semantic.embeddings.enabled ? 'enabled (connectivity not tested)' : 'disabled');
+  add(checks, 'feature.commitments', 'pass', 'local explicit capture enabled; no automatic detection or delivery');
   add(checks, 'feature.calendar_read', 'pass', calendarRead.enabled
     ? `enabled (${formatClock(calendarRead.dayStartMinutes)}-${formatClock(calendarRead.dayEndMinutes)}; connectivity not tested)`
     : 'disabled');
