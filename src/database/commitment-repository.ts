@@ -1,6 +1,7 @@
 import type { AppDatabase } from './db.ts';
 
 export type CommitmentStatus = 'open' | 'completed' | 'cancelled';
+export type CommitmentRescheduleReason = 'updated' | 'unchanged' | 'not_open';
 
 export interface CommitmentInput {
   body: string;
@@ -17,6 +18,7 @@ export interface CommitmentRecord extends CommitmentInput {
 
 export interface CommitmentRescheduleResult {
   changed: boolean;
+  reason: CommitmentRescheduleReason;
   hadPreviousDueAt: boolean;
   notificationReset: boolean;
 }
@@ -153,13 +155,27 @@ export class CommitmentRepository {
 
   reschedule(id: number, dueAt: string): CommitmentRescheduleResult {
     if (!Number.isSafeInteger(id) || id < 1) {
-      return { changed: false, hadPreviousDueAt: false, notificationReset: false };
+      return { changed: false, reason: 'not_open', hadPreviousDueAt: false, notificationReset: false };
     }
     validateIso(dueAt, 'Invalid commitment reschedule date');
 
     const current = this.getById(id);
     if (!current || current.status !== 'open') {
-      return { changed: false, hadPreviousDueAt: Boolean(current?.dueAt), notificationReset: false };
+      return {
+        changed: false,
+        reason: 'not_open',
+        hadPreviousDueAt: Boolean(current?.dueAt),
+        notificationReset: false,
+      };
+    }
+
+    if (current.dueAt && new Date(current.dueAt).getTime() === new Date(dueAt).getTime()) {
+      return {
+        changed: false,
+        reason: 'unchanged',
+        hadPreviousDueAt: true,
+        notificationReset: false,
+      };
     }
 
     const result = this.database.native.prepare(`
@@ -171,6 +187,7 @@ export class CommitmentRepository {
     const changed = Number(result.changes) === 1;
     return {
       changed,
+      reason: changed ? 'updated' : 'not_open',
       hadPreviousDueAt: Boolean(current.dueAt),
       notificationReset: changed && Boolean(current.notifiedAt),
     };
