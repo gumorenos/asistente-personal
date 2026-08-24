@@ -16,12 +16,22 @@ function compact(value: string): string {
 export class SemanticDocumentCapability implements Capability {
   readonly name = 'semantic-documents';
 
+  private readonly documents: DocumentRepository;
+  private readonly semantic: DocumentSemanticService;
+  private readonly audit: AuditRepository;
+  private readonly hybrid: HybridDocumentSearchService | undefined;
+
   constructor(
-    private readonly documents: DocumentRepository,
-    private readonly semantic: DocumentSemanticService,
-    private readonly audit: AuditRepository,
-    private readonly hybrid?: HybridDocumentSearchService,
-  ) {}
+    documents: DocumentRepository,
+    semantic: DocumentSemanticService,
+    audit: AuditRepository,
+    hybrid?: HybridDocumentSearchService,
+  ) {
+    this.documents = documents;
+    this.semantic = semantic;
+    this.audit = audit;
+    this.hybrid = hybrid;
+  }
 
   async handle(message: IncomingMessage): Promise<CapabilityResult | undefined> {
     if (message.kind !== 'text') return undefined;
