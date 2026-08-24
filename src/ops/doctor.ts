@@ -3,6 +3,10 @@ import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { loadCalendarReadConfig, type CalendarReadConfig } from '../calendar/read-config.ts';
+import {
+  loadCalendarSlotSuggestionConfig,
+  type CalendarSlotSuggestionConfig,
+} from '../calendar/slot-suggestion-config.ts';
 import { loadConfig, type AppConfig } from '../config.ts';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
@@ -98,9 +102,11 @@ export function runDoctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
   const checks: DoctorCheck[] = [];
   let config: AppConfig;
   let calendarRead: CalendarReadConfig;
+  let calendarSlots: CalendarSlotSuggestionConfig;
   try {
     config = loadConfig(env);
     calendarRead = loadCalendarReadConfig(config, env);
+    calendarSlots = loadCalendarSlotSuggestionConfig(config, calendarRead, env);
     add(checks, 'config', 'pass', 'configuration valid');
   } catch (error) {
     add(checks, 'config', 'fail', error instanceof Error ? error.message : String(error));
@@ -136,6 +142,9 @@ export function runDoctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
   add(checks, 'feature.embeddings', 'pass', config.semantic.embeddings.enabled ? 'enabled (connectivity not tested)' : 'disabled');
   add(checks, 'feature.calendar_read', 'pass', calendarRead.enabled
     ? `enabled (${formatClock(calendarRead.dayStartMinutes)}-${formatClock(calendarRead.dayEndMinutes)}; connectivity not tested)`
+    : 'disabled');
+  add(checks, 'feature.calendar_slots', 'pass', calendarSlots.enabled
+    ? `enabled (${calendarSlots.maxSuggestions} max; ${calendarSlots.alignmentMinutes} min alignment)`
     : 'disabled');
   add(checks, 'feature.calendar_write', 'pass', config.calendar.enabled ? 'enabled (connectivity not tested)' : 'disabled');
   add(checks, 'feature.observer', 'pass', config.observer.enabled ? 'enabled' : 'disabled');

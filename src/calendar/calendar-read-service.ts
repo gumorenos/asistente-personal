@@ -153,7 +153,13 @@ export class CalendarReadService {
     return { period, range, events };
   }
 
-  async availability(period: 'today' | 'tomorrow'): Promise<CalendarAvailabilityResult | undefined> {
+  async availability(
+    period: 'today' | 'tomorrow',
+    minimumMinutes: number = this.config.minFreeMinutes,
+  ): Promise<CalendarAvailabilityResult | undefined> {
+    if (!Number.isInteger(minimumMinutes) || minimumMinutes < 5 || minimumMinutes > 240) {
+      throw new Error('Invalid Calendar availability minimum duration');
+    }
     const range = workRange(
       this.now(),
       this.timeZone,
@@ -163,7 +169,7 @@ export class CalendarReadService {
     );
     if (!range) return undefined;
     const busyIntervals = mergeAndClipBusy(await this.provider.queryBusy(range), range);
-    const freeSlots = freeFromBusy(busyIntervals, range, this.config.minFreeMinutes);
+    const freeSlots = freeFromBusy(busyIntervals, range, minimumMinutes);
     return { period, range, busyIntervals, freeSlots };
   }
 }
