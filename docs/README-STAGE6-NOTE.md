@@ -1,0 +1,1 @@
+Stage 6A/6B are documented in `docs/STAGE-6-COMMITMENTS.md`. The main README will be refreshed after the Stage 6B CI gate is green so the final documented HEAD can be revalidated once, rather than restarting Docker CI during active code correction.
