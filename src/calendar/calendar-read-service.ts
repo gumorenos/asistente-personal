@@ -31,6 +31,15 @@ export interface CalendarAvailabilityResult {
   freeSlots: CalendarFreeSlot[];
 }
 
+export interface CalendarExactAvailabilityResult {
+  range: CalendarReadRange;
+  durationMinutes: number;
+  busyIntervals: CalendarBusyInterval[];
+  isFree: boolean;
+}
+
+const MAX_EXACT_AVAILABILITY_HORIZON_MS = 366 * 24 * 60 * 60 * 1_000;
+
 function targetDate(now: Date, timeZone: string, period: 'today' | 'tomorrow') {
   const local = zonedDateTimeParts(now, timeZone);
   const today = { year: local.year, month: local.month, day: local.day };
@@ -171,5 +180,28 @@ export class CalendarReadService {
     const busyIntervals = mergeAndClipBusy(await this.provider.queryBusy(range), range);
     const freeSlots = freeFromBusy(busyIntervals, range, minimumMinutes);
     return { period, range, busyIntervals, freeSlots };
+  }
+
+  async exactAvailability(startAt: string, durationMinutes: number): Promise<CalendarExactAvailabilityResult> {
+    const startMs = new Date(startAt).getTime();
+    if (!Number.isFinite(startMs)) throw new Error('Invalid Calendar exact-availability start');
+    if (!Number.isInteger(durationMinutes) || durationMinutes < 5 || durationMinutes > 480) {
+      throw new Error('Calendar exact-availability duration must be between 5 and 480 minutes');
+    }
+
+    const nowMs = this.now().getTime();
+    if (startMs <= nowMs) throw new Error('Calendar exact-availability start must be in the future');
+    if (startMs - nowMs > MAX_EXACT_AVAILABILITY_HORIZON_MS) {
+      throw new Error('Calendar exact-availability start exceeds 366-day horizon');
+    }
+
+    const endMs = startMs + durationMinutes * 60_000;
+    const range: CalendarReadRange = {
+      startAt: new Date(startMs).toISOString(),
+      endAt: new Date(endMs).toISOString(),
+      timeZone: this.timeZone,
+    };
+    const busyIntervals = mergeAndClipBusy(await this.provider.queryBusy(range), range);
+    return { range, durationMinutes, busyIntervals, isFree: busyIntervals.length === 0 };
   }
 }

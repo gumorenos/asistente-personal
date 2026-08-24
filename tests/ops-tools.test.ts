@@ -102,11 +102,12 @@ test('doctor inspects an existing database without applying writes or requiring 
     assert.equal(report.checks.find((check) => check.name === 'feature.embeddings')?.detail, 'disabled');
     assert.equal(report.checks.find((check) => check.name === 'feature.calendar_read')?.detail, 'disabled');
     assert.equal(report.checks.find((check) => check.name === 'feature.calendar_slots')?.detail, 'disabled');
+    assert.equal(report.checks.find((check) => check.name === 'feature.calendar_exact_availability')?.detail, 'disabled');
     assert.equal(report.checks.find((check) => check.name === 'feature.calendar_write')?.detail, 'disabled');
   });
 });
 
-test('doctor validates and reports Calendar read + slot configuration without network I/O', () => {
+test('doctor validates and reports Calendar read + slot + exact availability configuration without network I/O', () => {
   withTempDir((directory) => {
     const source = join(directory, 'doctor-calendar-read.db');
     seedDatabase(source);
@@ -118,6 +119,7 @@ test('doctor validates and reports Calendar read + slot configuration without ne
       CALENDAR_SLOT_SUGGESTIONS_ENABLED: 'true',
       CALENDAR_SLOT_MAX_SUGGESTIONS: '4',
       CALENDAR_SLOT_ALIGNMENT_MINUTES: '15',
+      CALENDAR_EXACT_AVAILABILITY_ENABLED: 'true',
       GOOGLE_CALENDAR_CLIENT_ID: 'doctor-client',
       GOOGLE_CALENDAR_CLIENT_SECRET: 'doctor-secret',
       GOOGLE_CALENDAR_REFRESH_TOKEN: 'doctor-refresh',
@@ -131,6 +133,10 @@ test('doctor validates and reports Calendar read + slot configuration without ne
     assert.equal(
       report.checks.find((check) => check.name === 'feature.calendar_slots')?.detail,
       'enabled (4 max; 15 min alignment)',
+    );
+    assert.equal(
+      report.checks.find((check) => check.name === 'feature.calendar_exact_availability')?.detail,
+      'enabled (exact interval only; connectivity not tested)',
     );
     assert.equal(report.checks.find((check) => check.name === 'feature.calendar_write')?.detail, 'disabled');
   });
@@ -148,6 +154,10 @@ test('doctor fails closed on invalid configuration or missing database', () => {
   const badSlots = runDoctor({ CALENDAR_SLOT_SUGGESTIONS_ENABLED: 'true' });
   assert.equal(badSlots.ok, false);
   assert.equal(badSlots.checks[0]?.name, 'config');
+
+  const badExact = runDoctor({ CALENDAR_EXACT_AVAILABILITY_ENABLED: 'true' });
+  assert.equal(badExact.ok, false);
+  assert.equal(badExact.checks[0]?.name, 'config');
 
   const missing = runDoctor({ APP_DB_PATH: '/tmp/assistant-definitely-missing-doctor.db' });
   assert.equal(missing.ok, false);

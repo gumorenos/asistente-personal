@@ -2,6 +2,10 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
+import {
+  loadCalendarExactAvailabilityConfig,
+  type CalendarExactAvailabilityConfig,
+} from '../calendar/exact-availability-config.ts';
 import { loadCalendarReadConfig, type CalendarReadConfig } from '../calendar/read-config.ts';
 import {
   loadCalendarSlotSuggestionConfig,
@@ -103,10 +107,12 @@ export function runDoctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
   let config: AppConfig;
   let calendarRead: CalendarReadConfig;
   let calendarSlots: CalendarSlotSuggestionConfig;
+  let calendarExact: CalendarExactAvailabilityConfig;
   try {
     config = loadConfig(env);
     calendarRead = loadCalendarReadConfig(config, env);
     calendarSlots = loadCalendarSlotSuggestionConfig(config, calendarRead, env);
+    calendarExact = loadCalendarExactAvailabilityConfig(calendarRead, env);
     add(checks, 'config', 'pass', 'configuration valid');
   } catch (error) {
     add(checks, 'config', 'fail', error instanceof Error ? error.message : String(error));
@@ -145,6 +151,9 @@ export function runDoctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
     : 'disabled');
   add(checks, 'feature.calendar_slots', 'pass', calendarSlots.enabled
     ? `enabled (${calendarSlots.maxSuggestions} max; ${calendarSlots.alignmentMinutes} min alignment)`
+    : 'disabled');
+  add(checks, 'feature.calendar_exact_availability', 'pass', calendarExact.enabled
+    ? 'enabled (exact interval only; connectivity not tested)'
     : 'disabled');
   add(checks, 'feature.calendar_write', 'pass', config.calendar.enabled ? 'enabled (connectivity not tested)' : 'disabled');
   add(checks, 'feature.observer', 'pass', config.observer.enabled ? 'enabled' : 'disabled');
