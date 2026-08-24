@@ -4,30 +4,34 @@ Updated: 2026-08-24 (America/Lima)
 
 Stage 6B agrega notificación opt-in al self-chat cuando un compromiso explícito ya venció. **No agrega detección automática de promesas**, no usa Observer, IA ni Calendar, y no envía a terceros.
 
-## Gate automatizado — pendiente de CI final
+## Gate automatizado — PASS
 
-- [ ] TypeScript strict PASS en Node 22.18.
-- [ ] Suite completa PASS.
-- [ ] Runtime dependency audit sin vulnerabilidades high+.
-- [ ] Docker `linux/amd64` PASS.
-- [ ] Docker `linux/arm64` PASS.
-- [ ] Migración v17 agrega `notified_at` e índice de cola y es idempotente.
-- [ ] Feature deshabilitada por defecto.
-- [ ] Habilitar exige `WHATSAPP_ENABLED=true`.
-- [ ] Destino es obligatorio al habilitar y debe pertenecer exactamente a `WHATSAPP_SELF_JIDS`.
-- [ ] JIDs de grupo/malformados se rechazan.
-- [ ] Cola incluye solo compromisos `open`, con vencimiento `<= now` y `notified_at IS NULL`.
-- [ ] Futuros, sin fecha, completados, cancelados y ya notificados quedan fuera.
-- [ ] En estado normal un vencimiento exitoso se envía una vez y luego queda marcado `notified_at`.
-- [ ] Fallo de `sendText()` no marca entrega y permite retry posterior.
-- [ ] El audit de éxito guarda solo id/evento, no body ni fecha exacta.
-- [ ] Logs de error no guardan body ni mensaje privado del error.
-- [ ] Batch máximo 20 y orden determinista por vencimiento/id.
-- [ ] `runOnce()` solapado se suprime dentro de la misma instancia.
-- [ ] Antes de cada envío se revalida status/due/notified para reducir filas stale del batch.
-- [ ] Crear/listar/notificar compromisos no crea `action_request`.
-- [ ] Backup verifica schema v17 y conserva `notified_at`.
-- [ ] `doctor` exige schema v17 y valida config Stage 6B sin hacer tráfico WhatsApp.
+Evidencia funcional previa al cierre documental: CI #511, Node 22.18, **268/268 tests PASS**, runtime audit 0 vulnerabilidades, Docker AMD64 + ARM64 build/smoke PASS.
+
+- [x] TypeScript strict PASS en Node 22.18.
+- [x] Suite completa PASS.
+- [x] Runtime dependency audit sin vulnerabilidades high+.
+- [x] Docker `linux/amd64` build + smoke PDF/OCR PASS.
+- [x] Docker `linux/arm64` build + smoke PDF/OCR PASS.
+- [x] Migración v17 agrega `notified_at` e índice de cola y es idempotente.
+- [x] Feature deshabilitada por defecto.
+- [x] Habilitar exige `WHATSAPP_ENABLED=true`.
+- [x] Destino es obligatorio al habilitar y debe pertenecer exactamente a `WHATSAPP_SELF_JIDS`.
+- [x] JIDs de grupo/malformados se rechazan.
+- [x] Cola incluye solo compromisos `open`, con vencimiento `<= now` y `notified_at IS NULL`.
+- [x] Futuros, sin fecha, completados, cancelados y ya notificados quedan fuera.
+- [x] En estado normal un vencimiento exitoso se envía una vez y luego queda marcado `notified_at`.
+- [x] Fallo de `sendText()` no marca entrega y permite retry posterior.
+- [x] El audit de éxito guarda solo id/evento, no body ni fecha exacta.
+- [x] Logs de error no guardan body ni mensaje privado del error.
+- [x] Batch máximo 20 y orden determinista por vencimiento/id.
+- [x] `runOnce()` solapado se suprime dentro de la misma instancia.
+- [x] Antes de cada envío se revalida status/due/notified para reducir filas stale del batch.
+- [x] Crear/listar/notificar compromisos no crea `action_request`.
+- [x] Backup verifica schema v17 y conserva `notified_at`.
+- [x] `doctor` exige schema v17 y valida config Stage 6B sin hacer tráfico WhatsApp.
+
+Los checks automatizados no sustituyen los siguientes checks live/operativos.
 
 ## WhatsApp live — PENDIENTE
 
@@ -81,4 +85,4 @@ QA pendiente específico:
 
 ## Condición de cierre
 
-No activar Stage 6B para uso diario hasta tener CI verde + QA con línea WhatsApp dedicada + persistencia/restart + retry offline y revisar explícitamente el crash-window documentado.
+No activar Stage 6B para uso diario hasta tener QA con línea WhatsApp dedicada + persistencia/restart + retry offline y revisar explícitamente el crash-window documentado.
