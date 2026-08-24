@@ -6,6 +6,8 @@ import { localPeriodRange } from './time-utils.ts';
 import type { Capability, CapabilityResult } from './types.ts';
 
 const MAX_COMMAND_CHARS = 2_000;
+const MAX_ITEM_CHARS = 320;
+const MAX_REPLY_CHARS = 3_500;
 const RESCHEDULE_SENTINEL = '__commitment_reschedule__';
 
 export class CommitmentLifecycleCapability implements Capability {
@@ -85,6 +87,12 @@ export class CommitmentLifecycleCapability implements Capability {
     }
 
     const result = this.commitments.reschedule(id, parsed.dueAt);
+    if (result.reason === 'unchanged') {
+      return {
+        handled: true,
+        reply: `🤝 Compromiso #${id} ya estaba programado para ${this.formatDate(parsed.dueAt)}.`,
+      };
+    }
     if (!result.changed) {
       return { handled: true, reply: `No encontré un compromiso abierto #${id} para reprogramar.` };
     }
@@ -115,10 +123,20 @@ export class CommitmentLifecycleCapability implements Capability {
 
   private renderList(rows: ReturnType<CommitmentRepository['listOpen']>, title: string): string {
     if (rows.length === 0) return `${title}: ninguno.`;
-    return [
-      `${title}:`,
-      ...rows.map((row) => `• #${row.id} ${row.body}${row.dueAt ? ` — ${this.formatDate(row.dueAt)}` : ' — sin vencimiento'}`),
-    ].join('\n');
+
+    const lines = [`${title}:`];
+    for (const row of rows) {
+      const body = this.compactBody(row.body);
+      const line = `• #${row.id} ${body}${row.dueAt ? ` — ${this.formatDate(row.dueAt)}` : ' — sin vencimiento'}`;
+      if ([...lines, line].join('\n').length > MAX_REPLY_CHARS) break;
+      lines.push(line);
+    }
+    return lines.join('\n').slice(0, MAX_REPLY_CHARS);
+  }
+
+  private compactBody(body: string): string {
+    const compact = body.replace(/\s+/g, ' ').trim();
+    return compact.length <= MAX_ITEM_CHARS ? compact : `${compact.slice(0, MAX_ITEM_CHARS - 1)}…`;
   }
 
   private formatDate(iso: string): string {
