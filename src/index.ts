@@ -51,6 +51,7 @@ import { ObserverRetentionScheduler } from './scheduler/observer-retention-sched
 import { ReminderScheduler } from './scheduler/reminder-scheduler.ts';
 import { RetentionScheduler } from './scheduler/retention-scheduler.ts';
 import { DocumentSemanticService } from './semantic/document-semantic-service.ts';
+import { HybridDocumentSearchService } from './semantic/hybrid-document-search-service.ts';
 import { OpenAICompatibleEmbeddingProvider } from './semantic/openai-compatible-embedding-provider.ts';
 import type { EmbeddingProvider } from './semantic/types.ts';
 import { OpenAICompatibleTranscriptionProvider } from './transcription/openai-compatible-provider.ts';
@@ -148,6 +149,7 @@ const semanticService = new DocumentSemanticService(
     embeddingBatchSize: config.semantic.embeddings.batchSize,
   },
 );
+const hybridDocumentSearch = new HybridDocumentSearchService(memorySearch, semanticService);
 
 let calendarExecutor: CalendarActionExecutor | undefined;
 if (config.calendar.enabled) {
@@ -208,8 +210,8 @@ const capabilities: Capability[] = [
     timeoutMs: config.documents.timeoutMs,
   }, semanticService),
   new DocumentLifecycleCapability(documents, actions, audit),
-  // Semantic commands must run before generic `busca ...` FTS parsing.
-  new SemanticDocumentCapability(documents, semanticService, audit),
+  // Semantic/hybrid commands must run before generic `busca ...` FTS parsing.
+  new SemanticDocumentCapability(documents, semanticService, audit, hybridDocumentSearch),
   new LocalCapabilities(notes, reminders, expenses, audit, config.timeZone),
   new BriefingCapability(briefingService),
   new ObserverAdminCapability(observedChats, audit, config.observer.enabled),
