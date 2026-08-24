@@ -10,6 +10,8 @@ import { DocumentSemanticRepository } from '../src/database/document-semantic-re
 import { createDatabaseBackup, verifyDatabaseBackup } from '../src/ops/backup-service.ts';
 import { runDoctor } from '../src/ops/doctor.ts';
 
+const SELF_JID = '51999999999@s.whatsapp.net';
+
 function withTempDir<T>(run: (directory: string) => T): T {
   const directory = mkdtempSync(join(tmpdir(), 'assistant-ops-'));
   try { return run(directory); }
@@ -46,12 +48,16 @@ function seedDatabase(path: string): { documentId: number; commitmentId: number 
       text: 'Documento sintético para validar backup y memoria semántica.',
       textHash: 'c'.repeat(64),
     }]);
-    const commitmentId = commitments.create({ body: 'Compromiso sintético para backup' });
+    const commitmentId = commitments.create({
+      body: 'Compromiso sintético para backup',
+      dueAt: '2026-08-24T14:00:00.000Z',
+    });
+    assert.equal(commitments.markNotified(commitmentId, '2026-08-24T15:00:00.000Z'), true);
     return { documentId: stored.id, commitmentId };
   } finally { db.close(); }
 }
 
-test('backup service creates a coherent read-only-verifiable SQLite copy including semantic and commitment state', async () => {
+test('backup service creates a coherent read-only-verifiable SQLite copy including semantic and commitment notification state', async () => {
   await withTempDirAsync(async (directory) => {
     const source = join(directory, 'source.db');
     const destination = join(directory, 'backup.db');
@@ -60,11 +66,12 @@ test('backup service creates a coherent read-only-verifiable SQLite copy includi
     const report = await createDatabaseBackup(source, destination);
     assert.equal(report.quickCheck, 'ok');
     assert.equal(report.foreignKeyViolations, 0);
-    assert.equal(report.maxMigration, 16);
+    assert.equal(report.maxMigration, 17);
     assert.equal(report.documentCount, 1);
     assert.equal(report.semanticChunkCount, 1);
     assert.equal(report.semanticEmbeddingCount, 0);
     assert.equal(report.commitmentCount, 1);
+    assert.equal(report.commitmentNotifiedCount, 1);
     assert.ok(report.bytes > 0);
     assert.equal(statSync(destination).mode & 0o777, 0o600);
 
@@ -73,7 +80,7 @@ test('backup service creates a coherent read-only-verifiable SQLite copy includi
   });
 });
 
-test('backup is an independent snapshot and source mutations do not alter it', async () => {
+test('backup is an independent snapshot and source mutations do not alter notification state', async () => {
   await withTempDirAsync(async (directory) => {
     const source = join(directory, 'source.db');
     const destination = join(directory, 'backup.db');
@@ -90,6 +97,7 @@ test('backup is an independent snapshot and source mutations do not alter it', a
     assert.equal(verified.documentCount, 1);
     assert.equal(verified.semanticChunkCount, 1);
     assert.equal(verified.commitmentCount, 1);
+    assert.equal(verified.commitmentNotifiedCount, 1);
   });
 });
 
@@ -103,19 +111,41 @@ test('doctor inspects an existing database without applying writes or requiring 
 
     assert.equal(report.ok, true);
     assert.equal(beforeSize, afterSize);
-    assert.equal(report.checks.find((check) => check.name === 'database.migrations')?.detail, 'schema v16');
+    assert.equal(report.checks.find((check) => check.name === 'database.migrations')?.detail, 'schema v17');
     assert.equal(report.checks.find((check) => check.name === 'database.fts5')?.status, 'pass');
     assert.equal(report.checks.find((check) => check.name === 'local.commitments')?.detail, '1 commitment row(s)');
+    assert.equal(report.checks.find((check) => check.name === 'local.commitment_notifications')?.detail, '1 notified commitment row(s)');
     assert.equal(report.checks.find((check) => check.name === 'tools.poppler')?.status, 'pass');
     assert.equal(report.checks.find((check) => check.name === 'feature.embeddings')?.detail, 'disabled');
     assert.equal(
       report.checks.find((check) => check.name === 'feature.commitments')?.detail,
-      'local explicit capture enabled; no automatic detection or delivery',
+      'local explicit capture enabled; automatic detection disabled',
     );
+    assert.equal(report.checks.find((check) => check.name === 'feature.commitment_notifications')?.detail, 'disabled');
     assert.equal(report.checks.find((check) => check.name === 'feature.calendar_read')?.detail, 'disabled');
     assert.equal(report.checks.find((check) => check.name === 'feature.calendar_slots')?.detail, 'disabled');
     assert.equal(report.checks.find((check) => check.name === 'feature.calendar_exact_availability')?.detail, 'disabled');
     assert.equal(report.checks.find((check) => check.name === 'feature.calendar_write')?.detail, 'disabled');
+  });
+});
+
+test('doctor validates and reports commitment notifications without network I/O', () => {
+  withTempDir((directory) => {
+    const source = join(directory, 'doctor-commitments.db');
+    seedDatabase(source);
+    const report = runDoctor({
+      APP_DB_PATH: source,
+      WHATSAPP_ENABLED: 'true',
+      WHATSAPP_SELF_JIDS: SELF_JID,
+      COMMITMENT_NOTIFICATIONS_ENABLED: 'true',
+      COMMITMENT_NOTIFICATION_DESTINATION_JID: SELF_JID,
+    });
+
+    assert.equal(report.ok, true);
+    assert.equal(
+      report.checks.find((check) => check.name === 'feature.commitment_notifications')?.detail,
+      'enabled (allowlisted self destination; WhatsApp delivery not tested)',
+    );
   });
 });
 
@@ -170,6 +200,10 @@ test('doctor fails closed on invalid configuration or missing database', () => {
   const badExact = runDoctor({ CALENDAR_EXACT_AVAILABILITY_ENABLED: 'true' });
   assert.equal(badExact.ok, false);
   assert.equal(badExact.checks[0]?.name, 'config');
+
+  const badCommitmentNotifications = runDoctor({ COMMITMENT_NOTIFICATIONS_ENABLED: 'true' });
+  assert.equal(badCommitmentNotifications.ok, false);
+  assert.equal(badCommitmentNotifications.checks[0]?.name, 'config');
 
   const missing = runDoctor({ APP_DB_PATH: '/tmp/assistant-definitely-missing-doctor.db' });
   assert.equal(missing.ok, false);

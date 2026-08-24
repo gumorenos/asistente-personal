@@ -5,6 +5,7 @@ import { runMigrations } from './migrations.ts';
 import { runStage4Migration } from './stage4-migration.ts';
 import { runStage4dMigration } from './stage4d-migration.ts';
 import { runStage6Migration } from './stage6-migration.ts';
+import { runStage6bMigration } from './stage6b-migration.ts';
 
 export class AppDatabase {
   readonly native: DatabaseSync;
@@ -32,6 +33,7 @@ export class AppDatabase {
     runStage4Migration(this.native);
     runStage4dMigration(this.native);
     runStage6Migration(this.native);
+    runStage6bMigration(this.native);
   }
 
   ping(): boolean {

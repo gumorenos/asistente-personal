@@ -11,6 +11,10 @@ import {
   loadCalendarSlotSuggestionConfig,
   type CalendarSlotSuggestionConfig,
 } from '../calendar/slot-suggestion-config.ts';
+import {
+  loadCommitmentNotificationConfig,
+  type CommitmentNotificationConfig,
+} from '../commitments/notification-config.ts';
 import { loadConfig, type AppConfig } from '../config.ts';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
@@ -58,7 +62,7 @@ function inspectDatabase(config: AppConfig, checks: DoctorCheck[]): void {
       | { version: number | bigint }
       | undefined;
     const version = Number(migration?.version ?? 0);
-    add(checks, 'database.migrations', version >= 16 ? 'pass' : 'fail', `schema v${version}`);
+    add(checks, 'database.migrations', version >= 17 ? 'pass' : 'fail', `schema v${version}`);
 
     const journal = db.prepare('PRAGMA journal_mode').get() as { journal_mode?: string } | undefined;
     add(checks, 'database.wal', journal?.journal_mode?.toLowerCase() === 'wal' ? 'pass' : 'warn', journal?.journal_mode ?? 'unknown');
@@ -84,7 +88,11 @@ function inspectDatabase(config: AppConfig, checks: DoctorCheck[]): void {
     add(checks, 'semantic.storage', 'pass', `${Number(chunks?.value ?? 0)} chunks / ${Number(embeddings?.value ?? 0)} embeddings`);
 
     const commitmentRows = db.prepare('SELECT COUNT(*) AS value FROM commitments').get() as { value: number | bigint } | undefined;
+    const notifiedRows = db.prepare('SELECT COUNT(*) AS value FROM commitments WHERE notified_at IS NOT NULL').get() as
+      | { value: number | bigint }
+      | undefined;
     add(checks, 'local.commitments', 'pass', `${Number(commitmentRows?.value ?? 0)} commitment row(s)`);
+    add(checks, 'local.commitment_notifications', 'pass', `${Number(notifiedRows?.value ?? 0)} notified commitment row(s)`);
 
     const creds = db.prepare('SELECT COUNT(*) AS value FROM whatsapp_auth_creds').get() as { value: number | bigint } | undefined;
     const credentialCount = Number(creds?.value ?? 0);
@@ -111,11 +119,13 @@ export function runDoctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
   let calendarRead: CalendarReadConfig;
   let calendarSlots: CalendarSlotSuggestionConfig;
   let calendarExact: CalendarExactAvailabilityConfig;
+  let commitmentNotifications: CommitmentNotificationConfig;
   try {
     config = loadConfig(env);
     calendarRead = loadCalendarReadConfig(config, env);
     calendarSlots = loadCalendarSlotSuggestionConfig(config, calendarRead, env);
     calendarExact = loadCalendarExactAvailabilityConfig(calendarRead, env);
+    commitmentNotifications = loadCommitmentNotificationConfig(config, env);
     add(checks, 'config', 'pass', 'configuration valid');
   } catch (error) {
     add(checks, 'config', 'fail', error instanceof Error ? error.message : String(error));
@@ -149,7 +159,15 @@ export function runDoctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
   add(checks, 'feature.transcription', 'pass', config.transcription.enabled ? 'enabled (connectivity not tested)' : 'disabled');
   add(checks, 'feature.semantic', 'pass', config.semantic.enabled ? 'enabled' : 'disabled');
   add(checks, 'feature.embeddings', 'pass', config.semantic.embeddings.enabled ? 'enabled (connectivity not tested)' : 'disabled');
-  add(checks, 'feature.commitments', 'pass', 'local explicit capture enabled; no automatic detection or delivery');
+  add(checks, 'feature.commitments', 'pass', 'local explicit capture enabled; automatic detection disabled');
+  add(
+    checks,
+    'feature.commitment_notifications',
+    'pass',
+    commitmentNotifications.enabled
+      ? 'enabled (allowlisted self destination; WhatsApp delivery not tested)'
+      : 'disabled',
+  );
   add(checks, 'feature.calendar_read', 'pass', calendarRead.enabled
     ? `enabled (${formatClock(calendarRead.dayStartMinutes)}-${formatClock(calendarRead.dayEndMinutes)}; connectivity not tested)`
     : 'disabled');

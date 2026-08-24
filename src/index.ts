@@ -31,6 +31,7 @@ import { ObserverReadCapability } from './capabilities/observer-read-capability.
 import { ObserverSearchCapability } from './capabilities/observer-search-capability.ts';
 import { SemanticDocumentCapability } from './capabilities/semantic-document-capability.ts';
 import type { Capability } from './capabilities/types.ts';
+import { loadCommitmentNotificationConfig } from './commitments/notification-config.ts';
 import { loadConfig } from './config.ts';
 import { AssistantCore } from './core/assistant.ts';
 import { logger } from './core/logger.ts';
@@ -60,6 +61,7 @@ import type { DocumentExtractor } from './documents/types.ts';
 import { ObserverService } from './observer/observer-service.ts';
 import { SqliteObservationSink } from './observer/sqlite-observation-sink.ts';
 import { BriefingScheduler } from './scheduler/briefing-scheduler.ts';
+import { CommitmentNotificationScheduler } from './scheduler/commitment-notification-scheduler.ts';
 import { DocumentRetentionScheduler } from './scheduler/document-retention-scheduler.ts';
 import { ObserverRetentionScheduler } from './scheduler/observer-retention-scheduler.ts';
 import { ReminderScheduler } from './scheduler/reminder-scheduler.ts';
@@ -79,6 +81,7 @@ const documentQaConfig = loadDocumentQaConfig(config);
 const calendarReadConfig = loadCalendarReadConfig(config);
 const calendarSlotSuggestionConfig = loadCalendarSlotSuggestionConfig(config, calendarReadConfig);
 const calendarExactAvailabilityConfig = loadCalendarExactAvailabilityConfig(calendarReadConfig);
+const commitmentNotificationConfig = loadCommitmentNotificationConfig(config);
 const database = new AppDatabase(config.dbPath);
 const messages = new MessageRepository(database);
 const notes = new NoteRepository(database);
@@ -218,6 +221,16 @@ if (config.briefing.enabled) {
   );
 }
 
+let commitmentNotificationScheduler: CommitmentNotificationScheduler | undefined;
+if (commitmentNotificationConfig.enabled) {
+  commitmentNotificationScheduler = new CommitmentNotificationScheduler(
+    commitments,
+    transport,
+    audit,
+    commitmentNotificationConfig.destinationJid!,
+  );
+}
+
 let retentionScheduler: RetentionScheduler | undefined;
 if (config.retention.enabled) {
   retentionScheduler = new RetentionScheduler(retention, audit, {
@@ -306,6 +319,7 @@ try {
   await transport.connect();
   reminderScheduler.start();
   briefingScheduler?.start();
+  commitmentNotificationScheduler?.start();
   appState = 'ready';
   logger.info('Assistant started', {
     dbPath: database.path,
@@ -338,6 +352,8 @@ try {
     calendarProvider: config.calendar.enabled || calendarReadConfig.enabled ? config.calendar.provider : 'disabled',
     dailyBriefingEnabled: config.briefing.enabled,
     dailyBriefingTime: `${String(config.briefing.hour).padStart(2, '0')}:${String(config.briefing.minute).padStart(2, '0')}`,
+    commitmentNotificationsEnabled: commitmentNotificationConfig.enabled,
+    commitmentNotificationDestinationConfigured: Boolean(commitmentNotificationConfig.destinationJid),
     observerEnabled: config.observer.enabled,
     observedChatAllowlistCount: observedChats.listEnabled().length,
     observerStorage: config.observer.enabled ? 'sqlite-text-only' : 'disabled',
@@ -368,6 +384,7 @@ async function shutdown(signal: string): Promise<void> {
   observerRetentionScheduler?.stop();
   documentRetentionScheduler?.stop();
   retentionScheduler?.stop();
+  commitmentNotificationScheduler?.stop();
   briefingScheduler?.stop();
   reminderScheduler.stop();
   await transport.disconnect().catch(() => undefined);
