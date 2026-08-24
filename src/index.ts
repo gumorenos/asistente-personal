@@ -13,6 +13,7 @@ import { BriefingCapability } from './capabilities/briefing-capability.ts';
 import { CalendarProposalCapability } from './capabilities/calendar-proposal-capability.ts';
 import { DocumentCapability } from './capabilities/document-capability.ts';
 import { DocumentLifecycleCapability } from './capabilities/document-lifecycle-capability.ts';
+import { DocumentQaCapability } from './capabilities/document-qa-capability.ts';
 import { LocalCapabilities } from './capabilities/local-capabilities.ts';
 import { MemorySearchCapability } from './capabilities/memory-search-capability.ts';
 import { ObserverAdminCapability } from './capabilities/observer-admin-capability.ts';
@@ -38,6 +39,8 @@ import { NoteRepository } from './database/note-repository.ts';
 import { ObservedChatRepository } from './database/observed-chat-repository.ts';
 import { ReminderRepository } from './database/reminder-repository.ts';
 import { RetentionRepository } from './database/retention-repository.ts';
+import { loadDocumentQaConfig } from './document-qa/config.ts';
+import { DocumentQaService } from './document-qa/document-qa-service.ts';
 import { DocumentActionExecutor } from './documents/document-action-executor.ts';
 import { HybridPdfExtractor } from './documents/hybrid-pdf-extractor.ts';
 import { PopplerPdfExtractor } from './documents/poppler-pdf-extractor.ts';
@@ -61,6 +64,7 @@ import type { MessageTransport } from './transports/types.ts';
 import { BaileysWhatsAppTransport } from './transports/whatsapp/baileys-transport.ts';
 
 const config = loadConfig();
+const documentQaConfig = loadDocumentQaConfig(config);
 const database = new AppDatabase(config.dbPath);
 const messages = new MessageRepository(database);
 const notes = new NoteRepository(database);
@@ -150,6 +154,9 @@ const semanticService = new DocumentSemanticService(
   },
 );
 const hybridDocumentSearch = new HybridDocumentSearchService(memorySearch, semanticService);
+const documentQaService = documentQaConfig.enabled && aiProvider
+  ? new DocumentQaService(hybridDocumentSearch, aiProvider, documentQaConfig)
+  : undefined;
 
 let calendarExecutor: CalendarActionExecutor | undefined;
 if (config.calendar.enabled) {
@@ -210,8 +217,9 @@ const capabilities: Capability[] = [
     timeoutMs: config.documents.timeoutMs,
   }, semanticService),
   new DocumentLifecycleCapability(documents, actions, audit),
-  // Semantic/hybrid commands must run before generic `busca ...` FTS parsing.
+  // Semantic/hybrid/Q&A commands must run before generic `busca ...` and generic AI parsing.
   new SemanticDocumentCapability(documents, semanticService, audit, hybridDocumentSearch),
+  new DocumentQaCapability(documentQaService, audit, documentQaConfig.enabled, documentQaConfig.maxQuestionChars),
   new LocalCapabilities(notes, reminders, expenses, audit, config.timeZone),
   new BriefingCapability(briefingService),
   new ObserverAdminCapability(observedChats, audit, config.observer.enabled),
@@ -271,6 +279,7 @@ try {
     embeddingsEnabled: config.semantic.embeddings.enabled,
     embeddingsProvider: config.semantic.embeddings.enabled ? config.semantic.embeddings.provider : 'disabled',
     embeddingsDimensions: config.semantic.embeddings.enabled ? config.semantic.embeddings.dimensions : undefined,
+    documentQaEnabled: documentQaConfig.enabled,
     calendarWritesEnabled: config.calendar.enabled,
     calendarProvider: config.calendar.enabled ? config.calendar.provider : 'disabled',
     dailyBriefingEnabled: config.briefing.enabled,
