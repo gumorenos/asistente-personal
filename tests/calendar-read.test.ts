@@ -125,6 +125,7 @@ test('availability today clamps past time, merges busy intervals and returns onl
     { startAt: '2026-08-24T20:00:00.000Z', endAt: '2026-08-24T20:15:00.000Z' },
   ]);
   assert.deepEqual(result?.freeSlots, [
+    { startAt: '2026-08-24T14:15:00.000Z', endAt: '2026-08-24T15:00:00.000Z' },
     { startAt: '2026-08-24T17:00:00.000Z', endAt: '2026-08-24T20:00:00.000Z' },
     { startAt: '2026-08-24T20:15:00.000Z', endAt: '2026-08-25T01:00:00.000Z' },
   ]);
