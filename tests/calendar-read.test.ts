@@ -172,7 +172,7 @@ test('agenda output is bounded and audit never stores event titles', async () =>
 
     assert.match(result?.reply ?? '', /10:00–10:30/);
     assert.match(result?.reply ?? '', /Todo el día/);
-    assert.ok((result?.reply.length ?? 0) <= 500);
+    assert.ok((result?.reply ?? '').length <= 500);
     const auditJson = JSON.stringify(audit.listRecent(20));
     assert.match(auditJson, /calendar\.read\.agenda/);
     assert.ok(!auditJson.includes(secret));
