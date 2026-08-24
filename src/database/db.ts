@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { runMigrations } from './migrations.ts';
 import { runStage4Migration } from './stage4-migration.ts';
+import { runStage4dMigration } from './stage4d-migration.ts';
 
 export class AppDatabase {
   readonly native: DatabaseSync;
@@ -28,6 +29,7 @@ export class AppDatabase {
     this.native.exec('PRAGMA secure_delete = ON;');
     runMigrations(this.native);
     runStage4Migration(this.native);
+    runStage4dMigration(this.native);
   }
 
   ping(): boolean {

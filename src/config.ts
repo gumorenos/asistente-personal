@@ -49,6 +49,22 @@ export interface AppConfig {
       days: number;
     };
   };
+  semantic: {
+    enabled: boolean;
+    chunkMaxChars: number;
+    chunkOverlapChars: number;
+    maxChunks: number;
+    embeddings: {
+      enabled: boolean;
+      provider: 'openai-compatible';
+      baseUrl?: string;
+      apiKey?: string;
+      model?: string;
+      dimensions: number;
+      timeoutMs: number;
+      batchSize: number;
+    };
+  };
   calendar: {
     enabled: boolean;
     provider: 'google';
@@ -95,6 +111,12 @@ function parsePort(value: string | undefined, fallback: number): number {
 function parsePositiveInteger(value: string | undefined, fallback: number, name: string, min: number, max: number): number {
   const parsed = Number(value ?? fallback);
   if (!Number.isInteger(parsed) || parsed < min || parsed > max) throw new Error(`Invalid ${name}: ${value ?? ''}`);
+  return parsed;
+}
+
+function parseNonNegativeInteger(value: string | undefined, fallback: number, name: string, max: number): number {
+  const parsed = Number(value ?? fallback);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > max) throw new Error(`Invalid ${name}: ${value ?? ''}`);
   return parsed;
 }
 
@@ -165,7 +187,13 @@ function parseExternalBaseUrl(value: string | undefined, name: string): string |
   return url.toString().replace(/\/$/, '');
 }
 
-function validateExternalProvider(enabled: boolean, baseUrl: string | undefined, model: string | undefined, apiKey: string | undefined, prefix: 'AI' | 'TRANSCRIPTION'): void {
+function validateExternalProvider(
+  enabled: boolean,
+  baseUrl: string | undefined,
+  model: string | undefined,
+  apiKey: string | undefined,
+  prefix: 'AI' | 'TRANSCRIPTION' | 'EMBEDDINGS',
+): void {
   if (!enabled) return;
   if (!baseUrl) throw new Error(`${prefix}_BASE_URL is required when ${prefix}_ENABLED=true`);
   if (!model) throw new Error(`${prefix}_MODEL is required when ${prefix}_ENABLED=true`);
@@ -218,6 +246,20 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error('DOCUMENTS_ENABLED=true is required when DOCUMENTS_OCR_ENABLED=true');
   }
   const documentRetentionEnabled = parseBoolean(env.DOCUMENT_RETENTION_ENABLED, false);
+
+  const semanticEnabled = parseBoolean(env.SEMANTIC_ENABLED, false);
+  const embeddingsEnabled = parseBoolean(env.EMBEDDINGS_ENABLED, false);
+  if (semanticEnabled && !documentsEnabled) throw new Error('DOCUMENTS_ENABLED=true is required when SEMANTIC_ENABLED=true');
+  if (embeddingsEnabled && !semanticEnabled) throw new Error('SEMANTIC_ENABLED=true is required when EMBEDDINGS_ENABLED=true');
+  const embeddingsBaseUrl = parseExternalBaseUrl(env.EMBEDDINGS_BASE_URL, 'EMBEDDINGS_BASE_URL');
+  const embeddingsModel = env.EMBEDDINGS_MODEL?.trim() || undefined;
+  const embeddingsApiKey = env.EMBEDDINGS_API_KEY?.trim() || undefined;
+  validateExternalProvider(embeddingsEnabled, embeddingsBaseUrl, embeddingsModel, embeddingsApiKey, 'EMBEDDINGS');
+  const semanticChunkMaxChars = parsePositiveInteger(env.SEMANTIC_CHUNK_MAX_CHARS, 1_200, 'SEMANTIC_CHUNK_MAX_CHARS', 200, 4_000);
+  const semanticChunkOverlapChars = parseNonNegativeInteger(env.SEMANTIC_CHUNK_OVERLAP_CHARS, 200, 'SEMANTIC_CHUNK_OVERLAP_CHARS', 1_999);
+  if (semanticChunkOverlapChars >= Math.floor(semanticChunkMaxChars / 2)) {
+    throw new Error('SEMANTIC_CHUNK_OVERLAP_CHARS must be less than half SEMANTIC_CHUNK_MAX_CHARS');
+  }
 
   const calendarEnabled = parseBoolean(env.CALENDAR_ENABLED, false);
   const calendarClientId = requiredSecret(env.GOOGLE_CALENDAR_CLIENT_ID, 'GOOGLE_CALENDAR_CLIENT_ID', calendarEnabled);
@@ -288,6 +330,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       retention: {
         enabled: documentRetentionEnabled,
         days: parsePositiveInteger(env.DOCUMENT_RETENTION_DAYS, 90, 'DOCUMENT_RETENTION_DAYS', 1, 3_650),
+      },
+    },
+    semantic: {
+      enabled: semanticEnabled,
+      chunkMaxChars: semanticChunkMaxChars,
+      chunkOverlapChars: semanticChunkOverlapChars,
+      maxChunks: parsePositiveInteger(env.SEMANTIC_MAX_CHUNKS, 100, 'SEMANTIC_MAX_CHUNKS', 1, 500),
+      embeddings: {
+        enabled: embeddingsEnabled,
+        provider: parseProvider(env.EMBEDDINGS_PROVIDER, 'EMBEDDINGS_PROVIDER'),
+        baseUrl: embeddingsBaseUrl,
+        apiKey: embeddingsApiKey,
+        model: embeddingsModel,
+        dimensions: parsePositiveInteger(env.EMBEDDINGS_DIMENSIONS, 1_024, 'EMBEDDINGS_DIMENSIONS', 1, 8_192),
+        timeoutMs: parsePositiveInteger(env.EMBEDDINGS_TIMEOUT_MS, 20_000, 'EMBEDDINGS_TIMEOUT_MS', 1_000, 120_000),
+        batchSize: parsePositiveInteger(env.EMBEDDINGS_BATCH_SIZE, 32, 'EMBEDDINGS_BATCH_SIZE', 1, 100),
       },
     },
     calendar: {

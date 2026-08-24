@@ -3,6 +3,7 @@ import type { IncomingMessage } from '../core/types.ts';
 import type { AuditRepository } from '../database/audit-repository.ts';
 import type { DocumentRepository } from '../database/document-repository.ts';
 import type { DocumentExtractor } from '../documents/types.ts';
+import type { DocumentSemanticService } from '../semantic/document-semantic-service.ts';
 import type { Capability, CapabilityResult } from './types.ts';
 
 export interface DocumentCapabilityConfig {
@@ -35,19 +36,22 @@ export class DocumentCapability implements Capability {
 
   private readonly documents: DocumentRepository;
   private readonly audit: AuditRepository;
-  private readonly extractor?: DocumentExtractor;
+  private readonly extractor: DocumentExtractor | undefined;
   private readonly config: DocumentCapabilityConfig;
+  private readonly semantic: DocumentSemanticService | undefined;
 
   constructor(
     documents: DocumentRepository,
     audit: AuditRepository,
     extractor: DocumentExtractor | undefined,
     config: DocumentCapabilityConfig,
+    semantic?: DocumentSemanticService,
   ) {
     this.documents = documents;
     this.audit = audit;
     this.extractor = extractor;
     this.config = config;
+    this.semantic = semantic;
   }
 
   async handle(message: IncomingMessage): Promise<CapabilityResult | undefined> {
@@ -209,10 +213,27 @@ export class DocumentCapability implements Capability {
           truncated: stored.truncated,
         },
       });
+
+      let semanticLabel = '';
+      if (this.semantic?.enabled) {
+        try {
+          const indexed = await this.semantic.indexDocument(stored.id);
+          semanticLabel = ` · ${indexed.chunks} chunks semánticos${indexed.embeddings ? ` · ${indexed.embeddings} embeddings` : ''}`;
+        } catch (error) {
+          this.audit.record({
+            eventType: 'document.semantic.auto_index.failed',
+            entityType: 'document',
+            entityId: String(stored.id),
+            metadata: { errorType: error instanceof Error ? error.name : 'unknown' },
+          });
+          semanticLabel = ' · índice semántico pendiente';
+        }
+      }
+
       const methodLabel = method === 'ocr' ? ' mediante OCR local' : '';
       return {
         handled: true,
-        reply: `📄 Documento #${stored.id} indexado localmente${methodLabel}: ${stored.pageCount} pág. · ${stored.text.length} caracteres${stored.truncated ? ' · truncado al límite configurado' : ''}. Usa “busca documentos <texto>” para consultarlo.`,
+        reply: `📄 Documento #${stored.id} indexado localmente${methodLabel}: ${stored.pageCount} pág. · ${stored.text.length} caracteres${stored.truncated ? ' · truncado al límite configurado' : ''}${semanticLabel}. Usa “busca documentos <texto>” para consultarlo.`,
       };
     } catch (error) {
       this.audit.record({
