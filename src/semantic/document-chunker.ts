@@ -36,6 +36,7 @@ export function chunkDocumentText(text: string, config: DocumentChunkerConfig): 
 
   const chunks: DocumentChunk[] = [];
   let start = 0;
+  let finished = false;
   while (start < normalized.length && chunks.length < config.maxChunks) {
     const targetEnd = Math.min(start + config.maxChars, normalized.length);
     const end = findChunkEnd(normalized, start, targetEnd);
@@ -56,13 +57,13 @@ export function chunkDocumentText(text: string, config: DocumentChunkerConfig): 
       });
     }
 
-    if (end >= normalized.length) break;
-    const next = Math.max(end - config.overlapChars, start + 1);
-    start = next;
+    if (end >= normalized.length) {
+      finished = true;
+      break;
+    }
+    start = Math.max(end - config.overlapChars, start + 1);
   }
 
-  if (start < normalized.length && chunks.length >= config.maxChunks) {
-    throw new Error('Document exceeds semantic chunk limit');
-  }
+  if (!finished) throw new Error('Document exceeds semantic chunk limit');
   return chunks;
 }
