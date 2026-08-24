@@ -23,6 +23,7 @@ Asistente personal autónomo con WhatsApp como interfaz inicial. El núcleo func
 - **Stage 5C:** comprobación exacta de disponibilidad futura; consulta solo el intervalo pedido y no crea acciones/eventos.
 - **Stage 6A:** compromisos personales explícitos, locales y buscables; no hay detección automática de promesas.
 - **Stage 6B:** notificación opt-in al self-chat de compromisos vencidos; retry local y `notified_at`, sin afirmar exactly-once distribuido.
+- **Stage 6C:** vistas `hoy/semana/sin fecha` y reprogramación local idempotente; un no-op conserva `notified_at` y las respuestas están acotadas.
 
 Ningún check manual/live se considera aprobado por los tests automatizados. La fuente de verdad acumulada es [`docs/QA-PENDING.md`](docs/QA-PENDING.md) y cada stage avanzado mantiene su checklist específico.
 
@@ -85,6 +86,11 @@ me comprometo a renovar el dominio
 prometí revisar el contrato
 compromisos
 compromisos vencidos
+compromisos hoy
+compromisos semana
+compromisos sin fecha
+reprograma compromiso #1 mañana a las 10
+mueve compromiso #1 miércoles a las 9
 cumplí compromiso #1
 cancela compromiso #2
 busca compromisos dominio
@@ -237,7 +243,7 @@ CALENDAR_EXACT_AVAILABILITY_ENABLED=false
 
 Requiere Calendar read. `libre mañana a las 10 por 30 minutos` consulta únicamente ese intervalo mediante `freeBusy`. Duración 5–480 min, futuro y horizonte máximo 366 días. Como la consulta es explícita, puede comprobar horas fuera de la ventana laboral configurada. Solo devuelve libre/ocupado; no revela detalles del evento en conflicto y no persiste el resultado.
 
-## Compromisos — Stages 6A/6B
+## Compromisos — Stages 6A–6C
 
 Stage 6A almacena únicamente compromisos que el usuario capture explícitamente desde el self-chat. Puede tener vencimiento o quedar sin fecha; completar/cancelar es un lifecycle local atómico. Los compromisos entran en FTS y briefing, pero no se infieren de Observer ni de conversaciones de terceros.
 
@@ -249,6 +255,8 @@ COMMITMENT_NOTIFICATION_DESTINATION_JID=
 ```
 
 Al habilitar, `WHATSAPP_ENABLED=true` es obligatorio y el destino debe aparecer exactamente en `WHATSAPP_SELF_JIDS`. El scheduler procesa batches acotados, revalida cada fila antes del envío, persiste `notified_at` tras éxito y reintenta si `sendText()` falla.
+
+Stage 6C agrega vistas temporales locales (`hoy`, `semana`, `sin fecha`) y reprogramación explícita. Los rangos usan `America/Lima` con inicio inclusivo/fin exclusivo. Reprogramar a un vencimiento realmente distinto limpia `notified_at`; pedir exactamente el mismo vencimiento es un no-op que conserva ese estado para no rearmar una notificación ya entregada. Las vistas compactan cada body y se limitan a 3500 caracteres.
 
 No se afirma exactly-once distribuido: existe un crash-window si WhatsApp acepta el mensaje pero el proceso muere antes de persistir `notified_at`. Este riesgo está documentado y debe validarse con la línea QA antes de activar Stage 6B permanentemente.
 
@@ -341,14 +349,15 @@ curl http://127.0.0.1:8787/readyz
 - [`docs/QA-STAGE-5C-PENDING.md`](docs/QA-STAGE-5C-PENDING.md)
 - [`docs/QA-STAGE-6A-PENDING.md`](docs/QA-STAGE-6A-PENDING.md)
 - [`docs/QA-STAGE-6B-PENDING.md`](docs/QA-STAGE-6B-PENDING.md)
+- [`docs/QA-STAGE-6C-PENDING.md`](docs/QA-STAGE-6C-PENDING.md)
 
 ## Próximos bloques
 
 1. mantener acumulado el QA real de WhatsApp/RPi/Google/proveedores sin convertir tests automatizados en falsos PASS live;
-2. cerrar QA real de Stage 6A/6B con la línea WhatsApp QA, incluyendo restart/retry y el crash-window de notificaciones;
+2. cerrar QA real de Stage 6A–6C con la línea WhatsApp QA, incluyendo restart/retry, límites temporales y el crash-window de notificaciones;
 3. cerrar QA real de documentos/OCR/lifecycle/semantic/Q&A con corpus QA no sensible antes de habilitar documentos personales sensibles;
 4. cerrar QA read-only real de Calendar 5A–5C con un Calendar QA y token de scopes mínimos;
-5. continuar primero con lifecycle/consultas locales de compromisos antes de considerar un detector automático de promesas;
+5. evaluar la siguiente capacidad local de alto valor antes de considerar detección automática de promesas desde conversaciones;
 6. mantener OpenClaw, Claude Code, Codex y otros agentes como adaptadores opcionales, nunca como dependencia del producto.
 
 ## Aviso
