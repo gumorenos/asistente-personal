@@ -4,13 +4,13 @@ Updated: 2026-08-24 (America/Lima)
 
 Stage 5B genera opciones deterministas a partir de Calendar read/free-busy. No usa IA, no crea acciones y no escribe Calendar.
 
-## Gate automatizado — pendiente de CI final
+## Gate automatizado — CI final verde
 
-- [ ] TypeScript strict PASS en Node 22.18.
-- [ ] Suite completa PASS.
-- [ ] Runtime dependency audit sin vulnerabilidades high+.
-- [ ] Docker `linux/amd64` PASS.
-- [ ] Docker `linux/arm64` PASS.
+- [x] TypeScript strict PASS en Node 22.18.
+- [x] Suite completa PASS — 241/241 tests.
+- [x] Runtime dependency audit sin vulnerabilidades high+ — 0 vulnerabilidades.
+- [x] Docker `linux/amd64` PASS, incluido smoke PDF/OCR.
+- [x] Docker `linux/arm64` PASS, incluido smoke PDF/OCR.
 - [x] `CALENDAR_SLOT_SUGGESTIONS_ENABLED=false` por defecto.
 - [x] Habilitar sugerencias exige `CALENDAR_READ_ENABLED=true`.
 - [x] Habilitar sugerencias NO exige `CALENDAR_ENABLED=true`.
@@ -29,6 +29,8 @@ Stage 5B genera opciones deterministas a partir de Calendar read/free-busy. No u
 - [x] Audit guarda periodo/duración/conteos, no horas propuestas.
 - [x] Error de provider no filtra detalle privado al audit/reply.
 - [x] `npm run doctor` valida y reporta Stage 5B sin red.
+
+CI que cierra el gate automatizado: run #435 (`32692944680`).
 
 ## Google Calendar real — PENDIENTE
 
@@ -68,4 +70,4 @@ Stage 5B genera opciones deterministas a partir de Calendar read/free-busy. No u
 
 ## Condición de cierre Stage 5B
 
-No marcar Stage 5B live completo hasta tener CI verde + Stage 5A live read-only funcional + opciones reales verificadas + confirmación explícita de cero actions y cero Calendar writes.
+El gate automatizado está cerrado. No marcar Stage 5B live completo hasta tener Stage 5A live read-only funcional + opciones reales verificadas + confirmación explícita de cero actions y cero Calendar writes.
