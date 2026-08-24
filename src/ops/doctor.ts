@@ -55,7 +55,13 @@ function inspectDatabase(config: AppConfig, checks: DoctorCheck[]): void {
     add(checks, 'database.wal', journal?.journal_mode?.toLowerCase() === 'wal' ? 'pass' : 'warn', journal?.journal_mode ?? 'unknown');
 
     const secure = db.prepare('PRAGMA secure_delete').get() as { secure_delete?: number | bigint } | undefined;
-    add(checks, 'database.secure_delete', Number(secure?.secure_delete ?? 0) === 1 ? 'pass' : 'fail', String(secure?.secure_delete ?? 'unknown'));
+    const secureValue = Number(secure?.secure_delete ?? 0);
+    add(
+      checks,
+      'database.secure_delete',
+      secureValue === 1 ? 'pass' : 'warn',
+      secureValue === 1 ? 'read-only connection reports ON' : `read-only connection reports ${secureValue}; app sets ON at startup`,
+    );
 
     const fk = db.prepare('PRAGMA foreign_key_check').all() as unknown[];
     add(checks, 'database.foreign_keys', fk.length === 0 ? 'pass' : 'fail', `${fk.length} violation(s)`);
