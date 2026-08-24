@@ -13,6 +13,7 @@ export class CommitmentNotificationScheduler {
   private readonly destinationJid: string;
   private readonly now: () => Date;
   private timer?: NodeJS.Timeout;
+  private running = false;
 
   constructor(
     commitments: CommitmentRepository,
@@ -42,28 +43,34 @@ export class CommitmentNotificationScheduler {
   }
 
   async runOnce(): Promise<void> {
-    const now = this.now();
-    const due = this.commitments.listDueUnnotified(now.toISOString(), MAX_BATCH);
+    if (this.running) return;
+    this.running = true;
+    try {
+      const now = this.now();
+      const due = this.commitments.listDueUnnotified(now.toISOString(), MAX_BATCH);
 
-    for (const commitment of due) {
-      try {
-        await this.transport.sendText(
-          this.destinationJid,
-          `🤝 Compromiso vencido: #${commitment.id} ${commitment.body}`,
-        );
-        if (this.commitments.markNotified(commitment.id, now.toISOString())) {
-          this.audit.record({
-            eventType: 'commitment.notified',
-            entityType: 'commitment',
-            entityId: String(commitment.id),
+      for (const commitment of due) {
+        try {
+          await this.transport.sendText(
+            this.destinationJid,
+            `🤝 Compromiso vencido: #${commitment.id} ${commitment.body}`,
+          );
+          if (this.commitments.markNotified(commitment.id, now.toISOString())) {
+            this.audit.record({
+              eventType: 'commitment.notified',
+              entityType: 'commitment',
+              entityId: String(commitment.id),
+            });
+          }
+        } catch (error) {
+          logger.warn('Could not deliver commitment notification; it remains eligible for retry', {
+            commitmentId: commitment.id,
+            error: error instanceof Error ? error.name : 'UnknownError',
           });
         }
-      } catch (error) {
-        logger.warn('Could not deliver commitment notification; it remains eligible for retry', {
-          commitmentId: commitment.id,
-          error: error instanceof Error ? error.name : 'UnknownError',
-        });
       }
+    } finally {
+      this.running = false;
     }
   }
 }
