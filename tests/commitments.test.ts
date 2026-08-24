@@ -8,6 +8,7 @@ import { AuditRepository } from '../src/database/audit-repository.ts';
 import { CommitmentRepository } from '../src/database/commitment-repository.ts';
 import { AppDatabase } from '../src/database/db.ts';
 import { LocalMemorySearchRepository } from '../src/database/local-memory-search-repository.ts';
+import { runStage6Migration } from '../src/database/stage6-migration.ts';
 
 const fixedNow = new Date('2026-08-24T14:17:00.000Z'); // 09:17 Lima
 
@@ -31,7 +32,7 @@ function setup() {
   return { db, commitments, audit, capability };
 }
 
-test('migration v16 installs commitments table, index and FTS triggers', () => {
+test('migration v16 installs commitments table, index and FTS triggers idempotently', () => {
   const db = new AppDatabase(':memory:');
   try {
     const migration = db.native.prepare('SELECT MAX(version) AS version FROM schema_migrations').get() as { version: number };
@@ -48,7 +49,18 @@ test('migration v16 installs commitments table, index and FTS triggers', () => {
       SELECT source, source_id, text FROM self_memory_fts
       WHERE source = 'commitment' AND source_id = ?
     `).get(String(id)) as { source: string; source_id: string; text: string } | undefined;
-    assert.deepEqual(fts, { source: 'commitment', source_id: String(id), text: 'Enviar informe trimestral' });
+    assert.equal(fts?.source, 'commitment');
+    assert.equal(fts?.source_id, String(id));
+    assert.equal(fts?.text, 'Enviar informe trimestral');
+
+    runStage6Migration(db.native);
+    const migrationCount = db.native.prepare('SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 16').get() as { count: number | bigint };
+    const ftsCount = db.native.prepare(`
+      SELECT COUNT(*) AS count FROM self_memory_fts
+      WHERE source = 'commitment' AND source_id = ?
+    `).get(String(id)) as { count: number | bigint };
+    assert.equal(Number(migrationCount.count), 1);
+    assert.equal(Number(ftsCount.count), 1);
   } finally { db.close(); }
 });
 
@@ -88,7 +100,8 @@ test('explicit capability creates dated and undated commitments with content-fre
   try {
     const dated = await capability.handle(message('compromiso mañana a las 10 enviar informe a Ana'));
     assert.match(dated?.reply ?? '', /Compromiso #1 guardado/);
-    assert.match(dated?.reply ?? '', /25\/08\/2026/);
+    assert.match(dated?.reply ?? '', /25\/08\/(?:26|2026)/);
+    assert.match(dated?.reply ?? '', /10:00/);
     assert.equal(commitments.getById(1)?.dueAt, '2026-08-25T15:00:00.000Z');
     assert.equal(commitments.getById(1)?.body, 'enviar informe a Ana');
 
@@ -107,10 +120,15 @@ test('explicit capability creates dated and undated commitments with content-fre
   } finally { db.close(); }
 });
 
-test('invalid scheduled commitment is rejected before persistence and plain text is ignored', async () => {
+test('invalid or empty commitment is rejected before persistence and plain text is ignored', async () => {
   const { db, commitments, capability } = setup();
   try {
     assert.equal(await capability.handle(message('hola')), undefined);
+
+    const empty = await capability.handle(message('compromiso'));
+    assert.equal(empty?.handled, true);
+    assert.match(empty?.reply ?? '', /vacío/);
+
     const invalid = await capability.handle(message('compromiso hoy a las 8 enviar informe'));
     assert.match(invalid?.reply ?? '', /fecha\/hora futura válida/);
     assert.equal(commitments.listOpen().length, 0);
