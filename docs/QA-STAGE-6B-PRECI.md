@@ -1,0 +1,1 @@
+Stage 6B pre-CI status: implementation and automated tests are present; no live WhatsApp QA has been claimed. Final automated PASS markers must only be applied after PR CI succeeds on the exact final HEAD.
