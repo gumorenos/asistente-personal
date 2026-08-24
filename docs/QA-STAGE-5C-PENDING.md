@@ -4,13 +4,13 @@ Updated: 2026-08-24 (America/Lima)
 
 Stage 5C comprueba si un intervalo futuro explícito está libre u ocupado usando `freeBusy`. No usa IA, no crea acciones, no persiste disponibilidad y no escribe Calendar.
 
-## Gate automatizado — pendiente de CI final
+## Gate automatizado — CI final verde
 
-- [ ] TypeScript strict PASS en Node 22.18.
-- [ ] Suite completa PASS.
-- [ ] Runtime dependency audit sin vulnerabilidades high+.
-- [ ] Docker `linux/amd64` PASS.
-- [ ] Docker `linux/arm64` PASS.
+- [x] TypeScript strict PASS en Node 22.18.
+- [x] Suite completa PASS — 250/250 tests.
+- [x] Runtime dependency audit sin vulnerabilidades high+ — 0 vulnerabilidades.
+- [x] Docker `linux/amd64` PASS, incluido smoke PDF/OCR.
+- [x] Docker `linux/arm64` PASS, incluido smoke PDF/OCR.
 - [x] `CALENDAR_EXACT_AVAILABILITY_ENABLED=false` por defecto.
 - [x] Habilitar 5C exige `CALENDAR_READ_ENABLED=true`.
 - [x] Habilitar 5C NO exige `CALENDAR_ENABLED=true`.
@@ -21,6 +21,8 @@ Stage 5C comprueba si un intervalo futuro explícito está libre u ocupado usand
 - [x] Horizonte máximo limitado a 366 días.
 - [x] Inputs inválidos se rechazan antes de provider work.
 - [x] Busy intervals se recortan al intervalo consultado y se fusionan.
+- [x] Semántica de intervalo `[inicio, fin)`: eventos adyacentes en los bordes no cuentan como conflicto.
+- [x] Una consulta explícita fuera de la ventana laboral configurada se respeta y consulta exactamente ese intervalo.
 - [x] Resultado expone únicamente libre/ocupado; no detalles de eventos en conflicto.
 - [x] Capability explícita no intercepta sintaxis de creación Calendar.
 - [x] Feature disabled responde localmente y hace cero provider work.
@@ -28,6 +30,8 @@ Stage 5C comprueba si un intervalo futuro explícito está libre u ocupado usand
 - [x] Audit guarda duración, booleano y cantidad de conflictos; no hora/timestamp consultado.
 - [x] Error de provider no filtra detalle privado al reply/audit.
 - [x] `npm run doctor` valida y reporta 5C sin red.
+
+CI que cierra el gate automatizado: run #451 (`32695060671`) sobre código HEAD `f9e81fbdb5d3d33718e42a3de62f02265a9320ae`.
 
 ## Google Calendar real — PENDIENTE
 
@@ -66,4 +70,4 @@ Stage 5C comprueba si un intervalo futuro explícito está libre u ocupado usand
 
 ## Condición de cierre Stage 5C
 
-No marcar Stage 5C live completo hasta tener CI verde + Stage 5A live read-only funcional + intervalos reales libre/ocupado verificados + confirmación explícita de cero actions, cero persistencia de freeBusy y cero Calendar writes.
+El gate automatizado está cerrado. No marcar Stage 5C live completo hasta tener Stage 5A live read-only funcional + intervalos reales libre/ocupado verificados + confirmación explícita de cero actions, cero persistencia de freeBusy y cero Calendar writes.

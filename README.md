@@ -4,18 +4,25 @@ Asistente personal autónomo con WhatsApp como interfaz inicial. El núcleo func
 
 ## Estado
 
-- **Stage 1:** self-chat/local core cerrado a nivel de desarrollo; QA real WhatsApp/RPi pendiente.
-- **Stage 2A:** IA opcional explícita implementada; QA del proveedor real pendiente.
+- **Stage 1:** self-chat/local core implementado; QA real WhatsApp/RPi pendiente.
+- **Stage 2A:** IA opcional y explícita implementada; QA de proveedor real pendiente.
 - **Stage 2B:** transcripción opcional implementada; QA con audio/proveedor real pendiente.
 - **Stage 2C:** propuestas Calendar + aprobación/rechazo local implementadas.
-- **Stage 2D:** ejecución Google Calendar implementada detrás de enable + aprobación + ejecución explícita; QA Google real pendiente.
-- **Stage 2E:** briefing personal y retención operacional implementados, ambos opt-in donde corresponde.
-- **Stage 2F:** Observer text-only/read-only + lectura local explícita implementados detrás de límites estrictos; QA WhatsApp real pendiente.
-- **Stage 2G:** persistent Baileys `getMessage`/retry store implementado y PN/LID-aware; recovery real resend/missing-message pendiente de sesión WhatsApp QA.
-- **Stage 3:** memoria/búsqueda local FTS5 implementada sobre mensajes, notas, recordatorios y gastos; búsqueda Observer permanece físicamente separada y exact-JID only.
-- **Stage 4A:** ingestión local opt-in de PDFs con capa de texto implementada; binario efímero, texto extraído indexado como memoria local y OCR diferido a un stage posterior. QA PDF/WhatsApp real pendiente.
+- **Stage 2D:** ejecución Google Calendar detrás de enable + aprobación + ejecución explícita; QA Google real pendiente.
+- **Stage 2E:** briefing personal y retención operacional opt-in implementados.
+- **Stage 2F:** Observer text-only/read-only + lectura/búsqueda local exact-JID implementados; QA WhatsApp real pendiente.
+- **Stage 2G:** Baileys `getMessage`/retry store persistente y PN/LID-aware implementado; recovery real pendiente de QA live.
+- **Stage 3:** memoria/búsqueda local FTS5 sobre mensajes, notas, recordatorios y gastos; Observer físicamente separado.
+- **Stage 4A:** ingestión local opt-in de PDFs con capa de texto.
+- **Stage 4B:** OCR local opcional con Tesseract para PDFs escaneados.
+- **Stage 4C:** lifecycle documental, borrado mediante action pipeline y retención documental opt-in.
+- **Stage 4D:** chunks semánticos locales + embeddings opcionales con opt-in separado.
+- **Stage 4E:** Q&A documental explícito con retrieval acotado y fuentes tratadas como datos no confiables.
+- **Stage 5A:** Google Calendar read-only: agenda + free/busy, independiente de writes.
+- **Stage 5B:** sugerencias deterministas de horarios sobre free/busy; sin IA, acciones ni writes.
+- **Stage 5C:** comprobación exacta de disponibilidad futura; consulta solo el intervalo pedido y no crea acciones/eventos.
 
-Ningún check manual se considera aprobado por los tests automatizados. La fuente de verdad sigue siendo [`docs/QA-PENDING.md`](docs/QA-PENDING.md).
+Ningún check manual/live se considera aprobado por los tests automatizados. La fuente de verdad acumulada es [`docs/QA-PENDING.md`](docs/QA-PENDING.md) y cada stage avanzado mantiene su checklist específico.
 
 ## Principios de seguridad
 
@@ -23,28 +30,33 @@ Ningún check manual se considera aprobado por los tests automatizados. La fuent
 - `sendText()` solo acepta destinos incluidos en `WHATSAPP_SELF_JIDS`;
 - IA/transcripción no ejecutan comandos;
 - aprobar una acción no la ejecuta;
-- Calendar requiere `CALENDAR_ENABLED=true`, acción aprobada y luego `ejecuta acción #N`;
+- Calendar write requiere `CALENDAR_ENABLED=true`, acción aprobada y `ejecuta acción #N`;
+- Calendar read, sugerencias y comprobaciones exactas nunca crean acciones ni eventos;
 - Observer solo persiste texto de JIDs explícitamente allowlisted;
 - Observer no recibe `AssistantCore`, `MessageTransport`, capabilities de acciones ni providers externos;
 - Observer no puede responder a terceros/grupos ni crear acciones;
 - media Observer no se descarga;
-- lectura/búsqueda Observer exige un comando explícito desde el self-chat y JID exacto conocido;
-- `self_memory_fts` y `observation_fts` son índices separados;
-- ninguna búsqueda local llama IA ni envía la query/resultados a providers externos;
-- documentos se descargan solo después de pasar el self-chat guard;
-- un documento es terminal antes de los parsers de comandos: su caption o texto nunca ejecuta `anota`, `agenda`, etc.;
-- PDFs se validan por tamaño, MIME y magic header antes de extracción;
-- el PDF binario no se persiste; solo texto extraído + metadata mínima entran a SQLite;
-- el retry store de Baileys solo guarda contenido protobuf de self-chat autorizado/outbound, nunca Observer/ignored;
-- el retry store conserva alias PN/LID para resolver el mismo `message_id` por cualquiera de las dos identidades;
-- full history permanece deshabilitado.
+- búsqueda/lectura Observer exige self-chat + JID exacto conocido;
+- `self_memory_fts` y `observation_fts` permanecen separados;
+- ninguna búsqueda local llama IA automáticamente;
+- documentos solo se descargan después del self-chat guard;
+- captions/texto documental son terminales y nunca ejecutan comandos;
+- PDFs se validan por tamaño, MIME y magic header;
+- el PDF binario es efímero; solo texto + metadata mínima se persisten;
+- OCR es local y opt-in;
+- embeddings y Q&A documental tienen opt-ins independientes;
+- texto documental enviado a Q&A se trata como fuente no confiable y no obtiene herramientas;
+- el retry store de Baileys solo guarda protobuf de self-chat autorizado/outbound, nunca Observer/ignored;
+- full history permanece deshabilitado;
+- OpenClaw/Claude Code/Codex nunca son dependencia del core.
 
-## Capacidades locales
+## Comandos principales
 
 ```text
 ping
 estado
 ayuda
+briefing
 
 anota comprar filtro de agua
 notas
@@ -63,16 +75,31 @@ recordatorios
 completa recordatorio #1
 cancela recordatorio #2
 
-briefing
-
 documentos
 documento #1
 busca documentos contrato
+busca semántica documentos contrato
+busca híbrida documentos contrato
+pregunta documentos ¿qué dice el contrato sobre vacaciones?
+
+agenda hoy
+agenda mañana
+agenda semana
+disponibilidad hoy
+disponibilidad mañana
+propón horarios mañana para 30 minutos
+libre mañana a las 10 por 30 minutos
+
+agenda mañana a las 10 reunión con Ana por 30 minutos
+acciones
+aprueba acción #1
+rechaza acción #1
+ejecuta acción #1
 ```
 
 ## Memoria/búsqueda local — Stage 3
 
-La búsqueda es local y explícita. No usa embeddings ni IA.
+La búsqueda es local y explícita; FTS5 no llama IA.
 
 ```text
 busca filtro de agua
@@ -81,45 +108,16 @@ busca mensajes proyecto orion
 busca recordatorios visa
 busca gastos taxi
 busca gastos hoy taxi
-busca recordatorios semana banco
-busca notas mes presupuesto
 busca desde 2026-08-01 hasta 2026-08-20 proyecto
-busca gastos desde 2026-08-01 hasta 2026-08-20 taxi
 ```
 
-Fuentes de la memoria personal:
-
-- mensajes que ya pasaron el self-chat guard;
-- notas;
-- recordatorios;
-- gastos;
-- documentos PDF previamente indexados en Stage 4A.
-
-Reglas:
-
-- SQLite FTS5 local con matching Unicode/prefijos;
-- query máxima 200 caracteres / 8 tokens;
-- sintaxis FTS cruda no se ejecuta;
-- máximo 5 resultados por comando actual;
-- el propio mensaje `busca ...` se excluye por `message_id`;
-- `hoy`, `semana` y `mes` respetan `APP_TIMEZONE`;
-- `desde YYYY-MM-DD hasta YYYY-MM-DD` es inclusivo para el usuario;
-- audit guarda solo metadata estructural/counts, nunca query ni resultados.
-
-Observer usa otro índice y otro comando:
-
-```text
-busca observaciones 519XXXXXXXX@s.whatsapp.net contrato
-busca observaciones 120363XXXXXXXX@g.us presupuesto
-```
-
-No existe búsqueda Observer global: siempre exige un JID exacto ya conocido en `observed_chats`.
+Fuentes: mensajes self-chat ya autorizados, notas, recordatorios, gastos y documentos indexados. Query y resultados no se guardan en audit; Observer usa su propio índice/comando y siempre un JID exacto.
 
 Ver [`docs/STAGE-3-LOCAL-SEARCH.md`](docs/STAGE-3-LOCAL-SEARCH.md).
 
-## PDFs locales — Stage 4A
+## Documentos — Stages 4A–4E
 
-Stage 4A procesa únicamente documentos PDF del self-chat autorizado y está apagado por defecto.
+### Ingestión y OCR local
 
 ```env
 DOCUMENTS_ENABLED=false
@@ -127,79 +125,58 @@ DOCUMENTS_MAX_BYTES=10485760
 DOCUMENTS_MAX_PAGES=50
 DOCUMENTS_MAX_TEXT_CHARS=100000
 DOCUMENTS_TIMEOUT_MS=20000
+
+DOCUMENTS_OCR_ENABLED=false
+DOCUMENTS_OCR_MAX_PAGES=10
+DOCUMENTS_OCR_DPI=180
+DOCUMENTS_OCR_LANGUAGES=spa+eng
+DOCUMENTS_OCR_TIMEOUT_MS=60000
 ```
 
-Flujo de seguridad:
+`pdftotext`/`pdfinfo` se usan primero. Si no existe capa de texto y OCR está habilitado, Tesseract procesa localmente con límites propios. El binario no queda persistido.
 
-1. si está deshabilitado, el documento no se descarga;
-2. tamaño declarado y MIME se validan antes del download;
-3. tamaño real, MIME y `%PDF-` se revalidan después del download;
-4. `pdfinfo` valida número de páginas;
-5. `pdftotext` extrae localmente con timeout y output acotado;
-6. el binario se elimina tras la extracción y no se guarda en SQLite;
-7. solo texto extraído + metadata mínima se persisten e indexan como `document`;
-8. un PDF sin capa de texto no se guarda y queda como candidato futuro a OCR;
-9. no se llama IA, no se generan acciones y contenido Observer nunca obtiene loader documental.
+### Lifecycle y retención
 
-Comandos:
-
-```text
-documentos
-documento #1
-busca documentos contrato
-busca documentos mes presupuesto
-busca documentos desde 2026-08-01 hasta 2026-08-21 factura
-```
-
-El runtime Docker incluye `poppler-utils`. Ver [`docs/STAGE-4-DOCUMENTS.md`](docs/STAGE-4-DOCUMENTS.md).
-
-## IA explícita — Stage 2A
-
-Solo el texto después de `ia`/`ai` sale al proveedor. No se adjunta automáticamente historial, notas, gastos ni recordatorios.
+Borrado explícito usa el mismo pipeline de acciones: propuesta local -> aprobación -> ejecución. La retención automática documental es independiente y opt-in.
 
 ```env
-AI_ENABLED=false
-AI_PROVIDER=openai-compatible
-AI_BASE_URL=
-AI_API_KEY=
-AI_MODEL=
+DOCUMENT_RETENTION_ENABLED=false
+DOCUMENT_RETENTION_DAYS=90
 ```
 
-## Audio/transcripción — Stage 2B
+### Memoria semántica
 
-Solo audio del self-chat autorizado puede recibir un lazy media loader. Se comprueba tamaño declarado y tamaño real antes del upload.
+Crear chunks locales no requiere exportación. Los embeddings son un segundo opt-in explícito.
 
 ```env
-TRANSCRIPTION_ENABLED=false
-TRANSCRIPTION_PROVIDER=openai-compatible
-TRANSCRIPTION_BASE_URL=
-TRANSCRIPTION_API_KEY=
-TRANSCRIPTION_MODEL=
-TRANSCRIPTION_MAX_BYTES=15728640
+SEMANTIC_ENABLED=false
+SEMANTIC_CHUNK_MAX_CHARS=1200
+SEMANTIC_CHUNK_OVERLAP_CHARS=200
+SEMANTIC_MAX_CHUNKS=100
+
+EMBEDDINGS_ENABLED=false
+EMBEDDINGS_PROVIDER=openai-compatible
+EMBEDDINGS_BASE_URL=
+EMBEDDINGS_API_KEY=
+EMBEDDINGS_MODEL=
+EMBEDDINGS_DIMENSIONS=1024
 ```
 
-La transcripción vuelve como texto terminal; una transcripción que diga `anota ...`, `agenda ...` o similar no se ejecuta.
+### Q&A documental
 
-## Calendar — Stages 2C/2D
-
-La intención y el write son pasos distintos:
-
-```text
-agenda mañana a las 10 reunión con Ana por 30 minutos
-acciones
-aprueba acción #1
-ejecuta acción #1
+```env
+DOCUMENT_QA_ENABLED=false
+DOCUMENT_QA_MAX_QUESTION_CHARS=2000
+DOCUMENT_QA_MAX_CONTEXT_CHARS=7000
+DOCUMENT_QA_MAX_SOURCES=5
+DOCUMENT_QA_MAX_REPLY_CHARS=3500
 ```
 
-Reglas principales:
+Requiere AI + semantic + embeddings. Solo una pregunta explícita y un conjunto acotado de excerpts recuperados llegan al LLM. No se adjuntan automáticamente notas, gastos, recordatorios, Observer ni historial general. Si no hay hits, no se llama al LLM.
 
-- `agenda ...` crea solo una propuesta `pending`;
-- aprobar/rechazar son transiciones locales;
-- una propuesta expira al llegar su hora de inicio;
-- el executor vuelve a validar schema/fecha/timezone;
-- el ledger de ejecución usa idempotency key estable;
-- Google recibe un event ID determinista para reducir duplicados ante retries/crashes;
-- repetir una ejecución exitosa no crea otro evento.
+## Calendar — writes y reads separados
+
+### Write — Stages 2C/2D
 
 ```env
 CALENDAR_ENABLED=false
@@ -211,25 +188,63 @@ GOOGLE_CALENDAR_REFRESH_TOKEN=
 CALENDAR_TIMEOUT_MS=20000
 ```
 
-`CALENDAR_ENABLED=false` es el default.
+`agenda <fecha/hora> <título>` crea solo una propuesta. Aprobar no ejecuta. El write ocurre únicamente con `ejecuta acción #N`, usa ledger/idempotency key estable y event ID determinista.
 
-## Briefing personal — Stage 2E
+### Read-only — Stage 5A
 
-`briefing` genera un resumen determinista con estado local. El envío diario automático es opcional y exige un destino que ya pertenezca a `WHATSAPP_SELF_JIDS`.
+```env
+CALENDAR_READ_ENABLED=false
+CALENDAR_READ_DAY_START=08:00
+CALENDAR_READ_DAY_END=20:00
+CALENDAR_READ_MIN_FREE_MINUTES=30
+CALENDAR_READ_MAX_EVENTS=20
+CALENDAR_READ_MAX_REPLY_CHARS=3500
+```
+
+Puede habilitarse con `CALENDAR_ENABLED=false`. Usa `events.list` con proyección mínima y `freeBusy`. Para un token exclusivamente read-only se documentan los scopes mínimos `calendar.events.readonly` + `calendar.freebusy`. La agenda/freeBusy no se persiste en SQLite.
+
+### Sugerencias deterministas — Stage 5B
+
+```env
+CALENDAR_SLOT_SUGGESTIONS_ENABLED=false
+CALENDAR_SLOT_MAX_SUGGESTIONS=3
+CALENDAR_SLOT_ALIGNMENT_MINUTES=15
+CALENDAR_SLOT_MAX_REPLY_CHARS=2000
+```
+
+Requiere Calendar read. Calcula opciones tempranas dentro de la ventana laboral, descarta pasado para `hoy`, alinea horarios y no crea `action_request`, evento ni estado oculto.
+
+### Disponibilidad exacta — Stage 5C
+
+```env
+CALENDAR_EXACT_AVAILABILITY_ENABLED=false
+```
+
+Requiere Calendar read. `libre mañana a las 10 por 30 minutos` consulta únicamente ese intervalo mediante `freeBusy`. Duración 5–480 min, futuro y horizonte máximo 366 días. Como la consulta es explícita, puede comprobar horas fuera de la ventana laboral configurada. Solo devuelve libre/ocupado; no revela detalles del evento en conflicto y no persiste el resultado.
+
+## IA explícita — Stage 2A
+
+Solo el texto tras `ia`/`ai` sale al proveedor. No se adjunta contexto personal automáticamente.
+
+```env
+AI_ENABLED=false
+AI_PROVIDER=openai-compatible
+AI_BASE_URL=
+AI_API_KEY=
+AI_MODEL=
+```
+
+## Audio/transcripción — Stage 2B
+
+Solo audio del self-chat autorizado obtiene lazy media loader. Se comprueba tamaño antes y después del download. La transcripción vuelve como texto terminal y nunca se ejecuta.
+
+## Briefing y retención operacional — Stage 2E
 
 ```env
 BRIEFING_ENABLED=false
 BRIEFING_TIME=08:00
 BRIEFING_DESTINATION_JID=
-```
 
-## Retención operacional — Stage 2E
-
-Opt-in. Purga normalized self-chat messages, el store `whatsapp_message_store`, outbound IDs, audit y briefing-delivery rows. El retry store usa la misma ventana `MESSAGE_RETENTION_DAYS`. Cuando un mensaje u observación base se purga, sus triggers eliminan también la entrada FTS correspondiente.
-
-Los documentos Stage 4A son estado de dominio y no se purgan con esta retención operacional; una política documental específica deberá definirse antes de uso diario con material sensible.
-
-```env
 RETENTION_ENABLED=false
 MESSAGE_RETENTION_DAYS=30
 OUTBOUND_RETENTION_DAYS=30
@@ -237,100 +252,69 @@ AUDIT_RETENTION_DAYS=90
 BRIEFING_RETENTION_DAYS=90
 ```
 
+El briefing usa estado local determinista. La retención operacional no borra notas/gastos/reminders/actions ni documentos; Observer y documentos tienen políticas propias.
+
 ## Observer read-only — Stage 2F
 
-Observer está apagado por defecto. Para capturar texto deben cumplirse todos estos gates:
-
-1. `WHATSAPP_ENABLED=true`;
-2. `WHATSAPP_SELF_JIDS` contiene el self-chat administrativo;
-3. `OBSERVER_ENABLED=true`;
-4. el JID concreto está habilitado en `observed_chats`.
-
-Administración y lectura desde el self-chat:
+Observer exige simultáneamente WhatsApp activo, self-JID administrativo, `OBSERVER_ENABLED=true` y el chat concreto allowlisted.
 
 ```text
 observa chat 519XXXXXXXX@s.whatsapp.net como Trabajo
-observa chat 120363XXXXXXXX@g.us como Familia
 chats observados
-observaciones 519XXXXXXXX@s.whatsapp.net
-observaciones 120363XXXXXXXX@g.us 10
+observaciones 519XXXXXXXX@s.whatsapp.net 10
 busca observaciones 519XXXXXXXX@s.whatsapp.net contrato
 deja de observar 519XXXXXXXX@s.whatsapp.net
 ```
 
-Observer initial:
-
-- solo eventos live `messages.upsert`/`notify`;
-- solo texto, máximo 4.000 caracteres;
-- tabla SQLite dedicada `observations`;
-- idempotencia `(chat_jid,message_id)`;
-- retención por chat de 1–90 días, default 7;
-- no media download;
-- no IA/transcripción/document extraction automática;
-- no Calendar/actions;
-- no replies a terceros/grupos;
-- búsqueda FTS separada, exact-JID only, sin búsqueda global.
-
-Ver contrato completo en [`docs/OBSERVER-FOUNDATION.md`](docs/OBSERVER-FOUNDATION.md).
+Solo persiste texto live allowlisted, con retención por chat; no descarga media, no usa IA, no crea acciones y no puede responder a terceros/grupos. Ver [`docs/OBSERVER-FOUNDATION.md`](docs/OBSERVER-FOUNDATION.md).
 
 ## Baileys retry/recovery — Stage 2G
 
-Baileys dispone de un `getMessage(key)` respaldado por SQLite:
+`getMessage(key)` usa SQLite y conserva alias PN/LID. Inbound entra al retry store solo después del self-chat guard; outbound solo tras send exitoso. Observer/ignored quedan fuera. Recovery real sigue pendiente de QA con una sesión WhatsApp autorizada.
 
-- migración v10 crea `whatsapp_message_store`;
-- migración v11 añade `remote_jid_alt` e índice PN/LID;
-- lookup por primary/alt + el mismo `message_id`;
-- persiste únicamente `IMessage` serializado con `BufferJSON`;
-- outbound solo tras `sendMessage` exitoso;
-- inbound solo después de resolver self-chat autorizado;
-- Observer/ignored traffic no entra al store;
-- retención usa `MESSAGE_RETENTION_DAYS`.
+## Operación local
 
-Esto cierra el gap de implementación, pero resend/missing-message recovery y PN/LID reales siguen pendientes de QA live.
-
-## Desarrollo local
-
-Requisitos: Node 22.18+. Para habilitar Stage 4A fuera de Docker también se requieren `pdfinfo` y `pdftotext` de Poppler.
+Requisitos: Node 22.18+. Para documentos fuera de Docker: Poppler; para OCR: Tesseract y traineddata configurados.
 
 ```bash
 cp .env.example .env
 npm ci
 npm run check
 npm audit --omit=dev --audit-level=high
+npm run doctor
 npm run dev
 ```
 
-Endpoints remotos de IA/transcripción deben usar HTTPS; HTTP se permite solo en loopback.
-
-## Docker
-
 ```bash
-cp .env.example .env
 docker compose up -d --build
 curl http://127.0.0.1:8787/healthz
 curl http://127.0.0.1:8787/readyz
 ```
 
-CI valida tests/typecheck/audit, builds `linux/amd64` + `linux/arm64` y disponibilidad de `pdfinfo`/`pdftotext` en ambas imágenes.
+`doctor` inspecciona configuración/DB/herramientas localmente y no prueba conectividad de proveedores. CI valida TypeScript/tests/audit, Docker `linux/amd64` + `linux/arm64` y smoke PDF/OCR.
 
-## Documentación
+## Documentación y QA
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - [`docs/SECURITY.md`](docs/SECURITY.md)
 - [`docs/OBSERVER-FOUNDATION.md`](docs/OBSERVER-FOUNDATION.md)
+- [`docs/OPS-TOOLS.md`](docs/OPS-TOOLS.md)
 - [`docs/STAGE-3-LOCAL-SEARCH.md`](docs/STAGE-3-LOCAL-SEARCH.md)
 - [`docs/STAGE-4-DOCUMENTS.md`](docs/STAGE-4-DOCUMENTS.md)
 - [`docs/QA-PENDING.md`](docs/QA-PENDING.md)
+- [`docs/QA-STAGE-4E-PENDING.md`](docs/QA-STAGE-4E-PENDING.md)
+- [`docs/QA-STAGE-5A-PENDING.md`](docs/QA-STAGE-5A-PENDING.md)
+- [`docs/QA-STAGE-5B-PENDING.md`](docs/QA-STAGE-5B-PENDING.md)
+- [`docs/QA-STAGE-5C-PENDING.md`](docs/QA-STAGE-5C-PENDING.md)
 
 ## Próximos bloques
 
-1. mantener acumulado el QA real de WhatsApp/RPi/Google/proveedores sin marcarlo aprobado artificialmente;
-2. validar Stage 4A con Poppler real + PDF con texto y, cuando exista sesión WhatsApp QA, descarga documental live;
-3. definir política específica de retención/borrado para documentos antes de uso sensible cotidiano;
-4. Stage 4B: evaluar OCR local para PDFs escaneados/imágenes sin ampliar Observer ni permitir ejecución automática;
-5. evaluar búsqueda semántica/embeddings solo si FTS5 demuestra una limitación real;
-6. integraciones opcionales con OpenClaw, Claude Code, Codex u otros agentes si aportan valor.
+1. mantener acumulado el QA real de WhatsApp/RPi/Google/proveedores sin convertir tests automatizados en falsos PASS live;
+2. cerrar QA real de documentos/OCR/lifecycle/semantic/Q&A con corpus QA no sensible antes de habilitar documentos personales sensibles;
+3. cerrar QA read-only real de Calendar 5A–5C con un Calendar QA y token de scopes mínimos;
+4. priorizar la siguiente capacidad del asistente que aporte valor sin debilitar el trust boundary (p. ej. nuevas lecturas explícitas o tracking local de compromisos);
+5. mantener OpenClaw, Claude Code, Codex y otros agentes como adaptadores opcionales, nunca como dependencia del producto.
 
 ## Aviso
 
-Baileys interactúa con WhatsApp Web y no es la API oficial de WhatsApp Business. El proyecto es para uso personal y conservador. Observer puede almacenar contenido de terceros cuando está activado y el chat fue autorizado; antes de usarlo con conversaciones reales deben revisarse necesidad, consentimiento aplicable, minimización y retención. Los documentos personales pueden contener información especialmente sensible y deben tratarse como estado persistente protegido. No debe usarse para spam, outreach automatizado, vigilancia abusiva ni mensajería masiva.
+Baileys interactúa con WhatsApp Web y no es la API oficial de WhatsApp Business. El proyecto es para uso personal y conservador. Observer puede almacenar contenido de terceros cuando está activado y el chat fue autorizado; antes de usarlo con conversaciones reales deben revisarse necesidad, consentimiento aplicable, minimización y retención. Documentos y Calendar pueden contener información sensible y deben usar permisos mínimos, backups controlados y políticas de retención explícitas. No debe usarse para spam, outreach automatizado, vigilancia abusiva ni mensajería masiva.
