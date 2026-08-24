@@ -1,6 +1,7 @@
 import type { IncomingMessage } from '../core/types.ts';
 import type { CommitmentRepository } from '../database/commitment-repository.ts';
 import type { AuditRepository } from '../database/audit-repository.ts';
+import { CommitmentDashboardCapability } from './commitment-dashboard-capability.ts';
 import { CommitmentLifecycleCapability } from './commitment-lifecycle-capability.ts';
 import { foldText, parseReminder } from './parsers.ts';
 import type { Capability, CapabilityResult } from './types.ts';
@@ -14,6 +15,7 @@ export class CommitmentCapability implements Capability {
   private readonly audit: AuditRepository;
   private readonly timeZone: string;
   private readonly now: () => Date;
+  private readonly dashboard: CommitmentDashboardCapability;
   private readonly lifecycle: CommitmentLifecycleCapability;
 
   constructor(
@@ -26,12 +28,16 @@ export class CommitmentCapability implements Capability {
     this.audit = audit;
     this.timeZone = timeZone;
     this.now = now;
+    this.dashboard = new CommitmentDashboardCapability(commitments, audit, timeZone, now);
     this.lifecycle = new CommitmentLifecycleCapability(commitments, audit, timeZone, now);
   }
 
   async handle(message: IncomingMessage): Promise<CapabilityResult | undefined> {
     const text = message.text.trim();
     if (!text) return undefined;
+
+    const dashboardResult = await this.dashboard.handle(message);
+    if (dashboardResult) return dashboardResult;
 
     const lifecycleResult = await this.lifecycle.handle(message);
     if (lifecycleResult) return lifecycleResult;
