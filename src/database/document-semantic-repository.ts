@@ -52,7 +52,11 @@ function cosineSimilarity(left: number[], right: number[]): number {
 }
 
 export class DocumentSemanticRepository {
-  constructor(private readonly database: AppDatabase) {}
+  private readonly database: AppDatabase;
+
+  constructor(database: AppDatabase) {
+    this.database = database;
+  }
 
   replaceDocumentIndex(
     documentId: number,
