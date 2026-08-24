@@ -18,6 +18,7 @@ import { MemorySearchCapability } from './capabilities/memory-search-capability.
 import { ObserverAdminCapability } from './capabilities/observer-admin-capability.ts';
 import { ObserverReadCapability } from './capabilities/observer-read-capability.ts';
 import { ObserverSearchCapability } from './capabilities/observer-search-capability.ts';
+import { SemanticDocumentCapability } from './capabilities/semantic-document-capability.ts';
 import type { Capability } from './capabilities/types.ts';
 import { loadConfig } from './config.ts';
 import { AssistantCore } from './core/assistant.ts';
@@ -29,6 +30,7 @@ import { AuditRepository } from './database/audit-repository.ts';
 import { BriefingDeliveryRepository } from './database/briefing-delivery-repository.ts';
 import { AppDatabase } from './database/db.ts';
 import { DocumentRepository } from './database/document-repository.ts';
+import { DocumentSemanticRepository } from './database/document-semantic-repository.ts';
 import { ExpenseRepository } from './database/expense-repository.ts';
 import { LocalMemorySearchRepository } from './database/local-memory-search-repository.ts';
 import { MessageRepository } from './database/message-repository.ts';
@@ -48,6 +50,9 @@ import { DocumentRetentionScheduler } from './scheduler/document-retention-sched
 import { ObserverRetentionScheduler } from './scheduler/observer-retention-scheduler.ts';
 import { ReminderScheduler } from './scheduler/reminder-scheduler.ts';
 import { RetentionScheduler } from './scheduler/retention-scheduler.ts';
+import { DocumentSemanticService } from './semantic/document-semantic-service.ts';
+import { OpenAICompatibleEmbeddingProvider } from './semantic/openai-compatible-embedding-provider.ts';
+import type { EmbeddingProvider } from './semantic/types.ts';
 import { OpenAICompatibleTranscriptionProvider } from './transcription/openai-compatible-provider.ts';
 import type { TranscriptionProvider } from './transcription/types.ts';
 import { DisabledTransport } from './transports/disabled.ts';
@@ -61,6 +66,7 @@ const notes = new NoteRepository(database);
 const expenses = new ExpenseRepository(database);
 const reminders = new ReminderRepository(database);
 const documents = new DocumentRepository(database);
+const documentSemanticRepository = new DocumentSemanticRepository(database);
 const audit = new AuditRepository(database);
 const actions = new ActionRequestRepository(database);
 const actionExecutions = new ActionExecutionRepository(database);
@@ -117,6 +123,31 @@ if (config.documents.enabled) {
     ocrTimeoutMs: config.documents.ocr.timeoutMs,
   });
 }
+
+let embeddingProvider: EmbeddingProvider | undefined;
+if (config.semantic.embeddings.enabled) {
+  embeddingProvider = new OpenAICompatibleEmbeddingProvider({
+    baseUrl: config.semantic.embeddings.baseUrl!,
+    apiKey: config.semantic.embeddings.apiKey,
+    model: config.semantic.embeddings.model!,
+    dimensions: config.semantic.embeddings.dimensions,
+    timeoutMs: config.semantic.embeddings.timeoutMs,
+  });
+}
+
+const semanticService = new DocumentSemanticService(
+  documents,
+  documentSemanticRepository,
+  audit,
+  embeddingProvider,
+  {
+    enabled: config.semantic.enabled,
+    maxChars: config.semantic.chunkMaxChars,
+    overlapChars: config.semantic.chunkOverlapChars,
+    maxChunks: config.semantic.maxChunks,
+    embeddingBatchSize: config.semantic.embeddings.batchSize,
+  },
+);
 
 let calendarExecutor: CalendarActionExecutor | undefined;
 if (config.calendar.enabled) {
@@ -175,8 +206,10 @@ const capabilities: Capability[] = [
     maxPages: config.documents.maxPages,
     maxTextChars: config.documents.maxTextChars,
     timeoutMs: config.documents.timeoutMs,
-  }),
+  }, semanticService),
   new DocumentLifecycleCapability(documents, actions, audit),
+  // Semantic commands must run before generic `busca ...` FTS parsing.
+  new SemanticDocumentCapability(documents, semanticService, audit),
   new LocalCapabilities(notes, reminders, expenses, audit, config.timeZone),
   new BriefingCapability(briefingService),
   new ObserverAdminCapability(observedChats, audit, config.observer.enabled),
@@ -232,6 +265,10 @@ try {
     documentOcrLanguages: config.documents.ocr.enabled ? config.documents.ocr.languages : undefined,
     documentRetentionEnabled: config.documents.retention.enabled,
     documentRetentionDays: config.documents.retention.enabled ? config.documents.retention.days : undefined,
+    semanticEnabled: config.semantic.enabled,
+    embeddingsEnabled: config.semantic.embeddings.enabled,
+    embeddingsProvider: config.semantic.embeddings.enabled ? config.semantic.embeddings.provider : 'disabled',
+    embeddingsDimensions: config.semantic.embeddings.enabled ? config.semantic.embeddings.dimensions : undefined,
     calendarWritesEnabled: config.calendar.enabled,
     calendarProvider: config.calendar.enabled ? config.calendar.provider : 'disabled',
     dailyBriefingEnabled: config.briefing.enabled,
