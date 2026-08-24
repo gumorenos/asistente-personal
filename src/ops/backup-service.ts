@@ -10,6 +10,7 @@ export interface BackupVerification {
   documentCount: number;
   semanticChunkCount: number;
   semanticEmbeddingCount: number;
+  commitmentCount: number;
   bytes: number;
 }
 
@@ -46,13 +47,14 @@ export function verifyDatabaseBackup(path: string): BackupVerification {
     const documentCount = scalarNumber(db, 'SELECT COUNT(*) AS value FROM documents');
     const semanticChunkCount = scalarNumber(db, 'SELECT COUNT(*) AS value FROM document_chunks');
     const semanticEmbeddingCount = scalarNumber(db, 'SELECT COUNT(*) AS value FROM document_embeddings');
-    // Force a real FTS read so a backup with broken virtual-table state is rejected.
+    const commitmentCount = scalarNumber(db, 'SELECT COUNT(*) AS value FROM commitments');
+    // Force real FTS reads so a backup with broken virtual-table state is rejected.
     db.prepare('SELECT COUNT(*) AS value FROM self_memory_fts').get();
     db.prepare('SELECT COUNT(*) AS value FROM observation_fts').get();
 
     if (quickCheck !== 'ok') throw new Error(`Backup quick_check failed: ${quickCheck}`);
     if (foreignKeyViolations !== 0) throw new Error(`Backup foreign_key_check found ${foreignKeyViolations} violation(s)`);
-    if (maxMigration < 15) throw new Error(`Backup schema is too old: migration ${maxMigration}`);
+    if (maxMigration < 16) throw new Error(`Backup schema is too old: migration ${maxMigration}`);
 
     return {
       path: resolved,
@@ -62,6 +64,7 @@ export function verifyDatabaseBackup(path: string): BackupVerification {
       documentCount,
       semanticChunkCount,
       semanticEmbeddingCount,
+      commitmentCount,
       bytes: statSync(resolved).size,
     };
   } finally {

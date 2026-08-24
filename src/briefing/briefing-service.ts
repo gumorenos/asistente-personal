@@ -1,4 +1,5 @@
 import type { ActionRequestRepository } from '../database/action-request-repository.ts';
+import type { CommitmentRepository } from '../database/commitment-repository.ts';
 import type { ExpenseRepository } from '../database/expense-repository.ts';
 import type { NoteRepository } from '../database/note-repository.ts';
 import type { ReminderRepository } from '../database/reminder-repository.ts';
@@ -7,6 +8,7 @@ import { localPeriodRange } from '../capabilities/time-utils.ts';
 export class BriefingService {
   private readonly notes: NoteRepository;
   private readonly reminders: ReminderRepository;
+  private readonly commitments: CommitmentRepository;
   private readonly expenses: ExpenseRepository;
   private readonly actions: ActionRequestRepository;
   private readonly timeZone: string;
@@ -14,12 +16,14 @@ export class BriefingService {
   constructor(
     notes: NoteRepository,
     reminders: ReminderRepository,
+    commitments: CommitmentRepository,
     expenses: ExpenseRepository,
     actions: ActionRequestRepository,
     timeZone: string,
   ) {
     this.notes = notes;
     this.reminders = reminders;
+    this.commitments = commitments;
     this.expenses = expenses;
     this.actions = actions;
     this.timeZone = timeZone;
@@ -28,6 +32,7 @@ export class BriefingService {
   render(now: Date): string {
     const notes = this.notes.listActive(5);
     const reminders = this.reminders.listPending(5);
+    const commitments = this.commitments.listOpen(5);
     const month = localPeriodRange(now, this.timeZone, 'month');
     const spending = this.expenses.summarizeRange(month.startIso, month.endIso);
     const actions = this.actions.listPending(now.toISOString(), 5);
@@ -44,6 +49,16 @@ export class BriefingService {
       for (const reminder of reminders) {
         const due = reminder.dueAt ? ` — ${this.formatDate(reminder.dueAt)}` : ' — sin hora';
         lines.push(`• #${reminder.id} ${reminder.body}${due}`);
+      }
+    }
+
+    lines.push('', '🤝 Compromisos');
+    if (commitments.length === 0) lines.push('• Sin compromisos abiertos.');
+    else {
+      for (const commitment of commitments) {
+        const due = commitment.dueAt ? ` — ${this.formatDate(commitment.dueAt)}` : ' — sin vencimiento';
+        const overdue = commitment.dueAt && new Date(commitment.dueAt).getTime() <= now.getTime() ? ' ⚠️ vencido' : '';
+        lines.push(`• #${commitment.id} ${commitment.body}${due}${overdue}`);
       }
     }
 

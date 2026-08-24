@@ -78,7 +78,7 @@ test('migration v15 creates chunk and embedding tables with cascade foreign keys
   const db = new AppDatabase(':memory:');
   try {
     const versions = db.native.prepare('SELECT version FROM schema_migrations ORDER BY version').all() as Array<{ version: number }>;
-    assert.equal(versions.at(-1)?.version, 15);
+    assert.equal(versions.some((row) => Number(row.version) === 15), true);
     const tables = db.native.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all() as Array<{ name: string }>;
     assert.ok(tables.some((row) => row.name === 'document_chunks'));
     assert.ok(tables.some((row) => row.name === 'document_embeddings'));

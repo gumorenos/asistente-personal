@@ -30,6 +30,8 @@ const SOURCE_ALIASES: Record<string, LocalMemorySource> = {
   gastos: 'expense',
   documento: 'document',
   documentos: 'document',
+  compromiso: 'commitment',
+  compromisos: 'commitment',
 };
 
 const SOURCE_LABELS: Record<LocalMemorySource, string> = {
@@ -38,6 +40,7 @@ const SOURCE_LABELS: Record<LocalMemorySource, string> = {
   reminder: 'recordatorios',
   expense: 'gastos',
   document: 'documentos',
+  commitment: 'compromisos',
 };
 
 type TemporalScopeKind = 'all-time' | 'day' | 'week' | 'month' | 'custom';
@@ -76,6 +79,7 @@ function formatResult(result: LocalMemorySearchResult, timeZone: string): string
     case 'reminder': source = `Recordatorio #${result.sourceId}`; break;
     case 'expense': source = `Gasto #${result.sourceId}`; break;
     case 'document': source = `Documento #${result.sourceId}`; break;
+    case 'commitment': source = `Compromiso #${result.sourceId}`; break;
     default: source = 'Mensaje';
   }
   return `• ${source} · ${formatLocalTimestamp(result.occurredAt, timeZone)} — ${compactText(result.text)}`;
@@ -163,7 +167,7 @@ export class MemorySearchCapability implements Capability {
 
   async handle(message: IncomingMessage): Promise<CapabilityResult | undefined> {
     const match = message.text.trim().match(
-      /^(?:busca|buscar)(?:\s+(mensajes?|notas?|recordatorios?|gastos?|documentos?))?\s+(.+)$/i,
+      /^(?:busca|buscar)(?:\s+(mensajes?|notas?|recordatorios?|gastos?|documentos?|compromisos?))?\s+(.+)$/i,
     );
     if (!match?.[2]) return undefined;
 
@@ -196,6 +200,7 @@ export class MemorySearchCapability implements Capability {
       reminders: results.filter((result) => result.source === 'reminder').length,
       expenses: results.filter((result) => result.source === 'expense').length,
       documents: results.filter((result) => result.source === 'document').length,
+      commitments: results.filter((result) => result.source === 'commitment').length,
     };
 
     this.audit.record({

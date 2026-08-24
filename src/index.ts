@@ -20,6 +20,7 @@ import { CalendarExactAvailabilityCapability } from './capabilities/calendar-exa
 import { CalendarProposalCapability } from './capabilities/calendar-proposal-capability.ts';
 import { CalendarReadCapability } from './capabilities/calendar-read-capability.ts';
 import { CalendarSlotSuggestionCapability } from './capabilities/calendar-slot-suggestion-capability.ts';
+import { CommitmentCapability } from './capabilities/commitment-capability.ts';
 import { DocumentCapability } from './capabilities/document-capability.ts';
 import { DocumentLifecycleCapability } from './capabilities/document-lifecycle-capability.ts';
 import { DocumentQaCapability } from './capabilities/document-qa-capability.ts';
@@ -38,6 +39,7 @@ import { ActionExecutionRepository } from './database/action-execution-repositor
 import { ActionRequestRepository } from './database/action-request-repository.ts';
 import { AuditRepository } from './database/audit-repository.ts';
 import { BriefingDeliveryRepository } from './database/briefing-delivery-repository.ts';
+import { CommitmentRepository } from './database/commitment-repository.ts';
 import { AppDatabase } from './database/db.ts';
 import { DocumentRepository } from './database/document-repository.ts';
 import { DocumentSemanticRepository } from './database/document-semantic-repository.ts';
@@ -82,6 +84,7 @@ const messages = new MessageRepository(database);
 const notes = new NoteRepository(database);
 const expenses = new ExpenseRepository(database);
 const reminders = new ReminderRepository(database);
+const commitments = new CommitmentRepository(database);
 const documents = new DocumentRepository(database);
 const documentSemanticRepository = new DocumentSemanticRepository(database);
 const audit = new AuditRepository(database);
@@ -94,7 +97,7 @@ const observationSink = new SqliteObservationSink(database);
 const observerService = new ObserverService(observedChats, observationSink);
 const retention = new RetentionRepository(database);
 const memorySearch = new LocalMemorySearchRepository(database);
-const briefingService = new BriefingService(notes, reminders, expenses, actions, config.timeZone);
+const briefingService = new BriefingService(notes, reminders, commitments, expenses, actions, config.timeZone);
 
 let transport: MessageTransport;
 if (config.whatsapp.enabled) {
@@ -250,6 +253,7 @@ const capabilities: Capability[] = [
   new SemanticDocumentCapability(documents, semanticService, audit, hybridDocumentSearch),
   new DocumentQaCapability(documentQaService, audit, documentQaConfig.enabled, documentQaConfig.maxQuestionChars),
   new LocalCapabilities(notes, reminders, expenses, audit, config.timeZone),
+  new CommitmentCapability(commitments, audit, config.timeZone),
   new BriefingCapability(briefingService),
   new ObserverAdminCapability(observedChats, audit, config.observer.enabled),
   new ObserverSearchCapability(observedChats, observationSink, audit, config.timeZone),
@@ -338,6 +342,7 @@ try {
     observedChatAllowlistCount: observedChats.listEnabled().length,
     observerStorage: config.observer.enabled ? 'sqlite-text-only' : 'disabled',
     localMemorySearch: 'sqlite-fts5-explicit-only',
+    localCommitments: 'sqlite-explicit-only',
     observerSearch: 'sqlite-fts5-exact-jid-explicit-only',
     retentionEnabled: config.retention.enabled,
     retentionPolicy: config.retention.enabled ? {

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { CommitmentRepository } from '../src/database/commitment-repository.ts';
 import { AppDatabase } from '../src/database/db.ts';
 import { DocumentRepository } from '../src/database/document-repository.ts';
 import { DocumentSemanticRepository } from '../src/database/document-semantic-repository.ts';
@@ -21,11 +22,12 @@ async function withTempDirAsync<T>(run: (directory: string) => Promise<T>): Prom
   finally { rmSync(directory, { recursive: true, force: true }); }
 }
 
-function seedDatabase(path: string): { documentId: number } {
+function seedDatabase(path: string): { documentId: number; commitmentId: number } {
   const db = new AppDatabase(path);
   try {
     const documents = new DocumentRepository(db);
     const semantic = new DocumentSemanticRepository(db);
+    const commitments = new CommitmentRepository(db);
     const stored = documents.save({
       messageId: 'backup-doc',
       receivedAt: 1_777_000_000,
@@ -44,11 +46,12 @@ function seedDatabase(path: string): { documentId: number } {
       text: 'Documento sintético para validar backup y memoria semántica.',
       textHash: 'c'.repeat(64),
     }]);
-    return { documentId: stored.id };
+    const commitmentId = commitments.create({ body: 'Compromiso sintético para backup' });
+    return { documentId: stored.id, commitmentId };
   } finally { db.close(); }
 }
 
-test('backup service creates a coherent read-only-verifiable SQLite copy including semantic tables', async () => {
+test('backup service creates a coherent read-only-verifiable SQLite copy including semantic and commitment state', async () => {
   await withTempDirAsync(async (directory) => {
     const source = join(directory, 'source.db');
     const destination = join(directory, 'backup.db');
@@ -57,10 +60,11 @@ test('backup service creates a coherent read-only-verifiable SQLite copy includi
     const report = await createDatabaseBackup(source, destination);
     assert.equal(report.quickCheck, 'ok');
     assert.equal(report.foreignKeyViolations, 0);
-    assert.equal(report.maxMigration, 15);
+    assert.equal(report.maxMigration, 16);
     assert.equal(report.documentCount, 1);
     assert.equal(report.semanticChunkCount, 1);
     assert.equal(report.semanticEmbeddingCount, 0);
+    assert.equal(report.commitmentCount, 1);
     assert.ok(report.bytes > 0);
     assert.equal(statSync(destination).mode & 0o777, 0o600);
 
@@ -73,16 +77,19 @@ test('backup is an independent snapshot and source mutations do not alter it', a
   await withTempDirAsync(async (directory) => {
     const source = join(directory, 'source.db');
     const destination = join(directory, 'backup.db');
-    const { documentId } = seedDatabase(source);
+    const { documentId, commitmentId } = seedDatabase(source);
     await createDatabaseBackup(source, destination);
 
     const sourceDb = new AppDatabase(source);
-    try { assert.equal(new DocumentRepository(sourceDb).delete(documentId).deleted, true); }
-    finally { sourceDb.close(); }
+    try {
+      assert.equal(new DocumentRepository(sourceDb).delete(documentId).deleted, true);
+      assert.equal(new CommitmentRepository(sourceDb).setStatus(commitmentId, 'completed'), true);
+    } finally { sourceDb.close(); }
 
     const verified = verifyDatabaseBackup(destination);
     assert.equal(verified.documentCount, 1);
     assert.equal(verified.semanticChunkCount, 1);
+    assert.equal(verified.commitmentCount, 1);
   });
 });
 
@@ -96,10 +103,15 @@ test('doctor inspects an existing database without applying writes or requiring 
 
     assert.equal(report.ok, true);
     assert.equal(beforeSize, afterSize);
-    assert.equal(report.checks.find((check) => check.name === 'database.migrations')?.detail, 'schema v15');
+    assert.equal(report.checks.find((check) => check.name === 'database.migrations')?.detail, 'schema v16');
     assert.equal(report.checks.find((check) => check.name === 'database.fts5')?.status, 'pass');
+    assert.equal(report.checks.find((check) => check.name === 'local.commitments')?.detail, '1 commitment row(s)');
     assert.equal(report.checks.find((check) => check.name === 'tools.poppler')?.status, 'pass');
     assert.equal(report.checks.find((check) => check.name === 'feature.embeddings')?.detail, 'disabled');
+    assert.equal(
+      report.checks.find((check) => check.name === 'feature.commitments')?.detail,
+      'local explicit capture enabled; no automatic detection or delivery',
+    );
     assert.equal(report.checks.find((check) => check.name === 'feature.calendar_read')?.detail, 'disabled');
     assert.equal(report.checks.find((check) => check.name === 'feature.calendar_slots')?.detail, 'disabled');
     assert.equal(report.checks.find((check) => check.name === 'feature.calendar_exact_availability')?.detail, 'disabled');
