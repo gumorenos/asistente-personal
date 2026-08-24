@@ -1,16 +1,20 @@
 # QA pendiente — Stage 5A Calendar read-only
 
-Updated: 2026-08-23 (America/Lima)
+Updated: 2026-08-24 (America/Lima)
 
 Stage 5A agrega lectura explícita de Google Calendar sin habilitar writes. Este checklist separa lo cubierto automáticamente de lo que requiere credenciales/Calendar/WhatsApp/host reales.
 
-## Gate automatizado esperado
+## Último gate automatizado conocido
 
-- [ ] TypeScript strict PASS en Node 22.18.
-- [ ] Suite completa PASS.
-- [ ] Runtime dependency audit sin vulnerabilidades high+.
-- [ ] Docker `linux/amd64` PASS.
-- [ ] Docker `linux/arm64` PASS.
+Commit probado: `874294913b0457a9ed61162e07deec65527815f1`
+
+GitHub Actions CI #417, run `32692438263`:
+
+- [x] TypeScript strict PASS en Node 22.18.
+- [x] **234/234 tests PASS**.
+- [x] `npm audit --omit=dev --audit-level=high`: **0 vulnerabilidades**.
+- [x] Docker `linux/amd64` PASS + smoke PDF/OCR tooling PASS.
+- [x] Docker `linux/arm64` PASS + smoke PDF/OCR tooling PASS.
 - [x] `CALENDAR_READ_ENABLED=false` por defecto.
 - [x] Calendar read puede habilitarse con `CALENDAR_ENABLED=false`.
 - [x] Read habilitado exige client id, client secret y refresh token.
@@ -29,6 +33,9 @@ Stage 5A agrega lectura explícita de Google Calendar sin habilitar writes. Este
 - [x] `agenda mañana a las 10 ...` no es interceptado por Calendar read y sigue disponible para proposal/write flow.
 - [x] Audit guarda solo periodo y conteos; no títulos, horas ni response bodies.
 - [x] Fallos se devuelven como error local seguro.
+- [x] `npm run doctor` valida/reportar Calendar read de forma local y no implementa llamadas Google.
+
+El commit de este documento es posterior al gate citado y no cambia código productivo. Los checks externos/live siguientes continúan pendientes.
 
 ## OAuth / Google Calendar real — PENDIENTE
 
@@ -64,12 +71,12 @@ Stage 5A agrega lectura explícita de Google Calendar sin habilitar writes. Este
 
 ## Operación / seguridad — PENDIENTE
 
-- [ ] Ejecutar `npm run doctor` con Calendar read enabled y confirmar que no hace tráfico Google.
+- [ ] Ejecutar `npm run doctor` en host real con Calendar read enabled y confirmar mediante observación de red que no hace tráfico Google.
 - [ ] Restart del proceso conserva configuración y vuelve a consultar sin pairing OAuth interactivo.
 - [ ] Medir latencia de `agenda hoy` y `disponibilidad mañana` desde el host objetivo.
 - [ ] Confirmar comportamiento ante pérdida/restauración de red sin duplicar mensajes WhatsApp.
 - [ ] Revisar cuota de Calendar API con uso personal normal.
-- [ ] Confirmar que no se persisten eventos/free-busy en SQLite; Stage 5A debe ser lectura remota efímera.
+- [ ] Confirmar en DB real que no se persisten eventos/free-busy; Stage 5A debe ser lectura remota efímera.
 
 ## Condición de cierre Stage 5A
 
