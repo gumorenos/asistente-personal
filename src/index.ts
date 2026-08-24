@@ -3,6 +3,7 @@ import { OpenAICompatibleProvider } from './ai/openai-compatible-provider.ts';
 import type { AiProvider } from './ai/types.ts';
 import { BriefingService } from './briefing/briefing-service.ts';
 import { CalendarActionExecutor } from './calendar/calendar-action-executor.ts';
+import { loadCalendarExactAvailabilityConfig } from './calendar/exact-availability-config.ts';
 import { CalendarReadService } from './calendar/calendar-read-service.ts';
 import { CalendarSlotSuggestionService } from './calendar/calendar-slot-suggestion-service.ts';
 import { GoogleCalendarProvider } from './calendar/google-calendar-provider.ts';
@@ -15,6 +16,7 @@ import { ActionExecutionCapability } from './capabilities/action-execution-capab
 import { AiCapability } from './capabilities/ai-capability.ts';
 import { AudioTranscriptionCapability } from './capabilities/audio-transcription-capability.ts';
 import { BriefingCapability } from './capabilities/briefing-capability.ts';
+import { CalendarExactAvailabilityCapability } from './capabilities/calendar-exact-availability-capability.ts';
 import { CalendarProposalCapability } from './capabilities/calendar-proposal-capability.ts';
 import { CalendarReadCapability } from './capabilities/calendar-read-capability.ts';
 import { CalendarSlotSuggestionCapability } from './capabilities/calendar-slot-suggestion-capability.ts';
@@ -74,6 +76,7 @@ const config = loadConfig();
 const documentQaConfig = loadDocumentQaConfig(config);
 const calendarReadConfig = loadCalendarReadConfig(config);
 const calendarSlotSuggestionConfig = loadCalendarSlotSuggestionConfig(config, calendarReadConfig);
+const calendarExactAvailabilityConfig = loadCalendarExactAvailabilityConfig(calendarReadConfig);
 const database = new AppDatabase(config.dbPath);
 const messages = new MessageRepository(database);
 const notes = new NoteRepository(database);
@@ -252,7 +255,13 @@ const capabilities: Capability[] = [
   new ObserverSearchCapability(observedChats, observationSink, audit, config.timeZone),
   new ObserverReadCapability(observedChats, observationSink, audit, config.timeZone),
   new MemorySearchCapability(memorySearch, audit, config.timeZone),
-  // Read/suggestion commands are exact matches, so event-creation syntax still falls through to proposal parsing.
+  // Calendar reads/checks/suggestions are explicit-only and cannot execute actions.
+  new CalendarExactAvailabilityCapability(
+    calendarReadService,
+    audit,
+    calendarExactAvailabilityConfig,
+    config.timeZone,
+  ),
   new CalendarSlotSuggestionCapability(
     calendarSlotSuggestionService,
     audit,
@@ -320,6 +329,7 @@ try {
       : undefined,
     calendarSlotSuggestionsEnabled: calendarSlotSuggestionConfig.enabled,
     calendarSlotSuggestionLimit: calendarSlotSuggestionConfig.enabled ? calendarSlotSuggestionConfig.maxSuggestions : undefined,
+    calendarExactAvailabilityEnabled: calendarExactAvailabilityConfig.enabled,
     calendarWritesEnabled: config.calendar.enabled,
     calendarProvider: config.calendar.enabled || calendarReadConfig.enabled ? config.calendar.provider : 'disabled',
     dailyBriefingEnabled: config.briefing.enabled,
