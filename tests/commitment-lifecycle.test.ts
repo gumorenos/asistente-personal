@@ -72,9 +72,38 @@ test('reschedule updates only open commitment and clears prior notification stat
     assert.ok(commitments.getById(id)?.notifiedAt);
 
     const result = commitments.reschedule(id, '2026-08-25T15:00:00.000Z');
-    assert.deepEqual(result, { changed: true, hadPreviousDueAt: true, notificationReset: true });
+    assert.deepEqual(result, {
+      changed: true,
+      reason: 'updated',
+      hadPreviousDueAt: true,
+      notificationReset: true,
+    });
     assert.equal(commitments.getById(id)?.dueAt, '2026-08-25T15:00:00.000Z');
     assert.equal(commitments.getById(id)?.notifiedAt, undefined);
+  } finally { db.close(); }
+});
+
+test('rescheduling to the exact same due time is a no-op and preserves notification state', async () => {
+  const { db, commitments, audit, lifecycle } = setup();
+  try {
+    const dueAt = '2026-08-25T15:00:00.000Z';
+    const id = commitments.create({ body: 'NO_DUPLICATE_NOTIFICATION', dueAt });
+    assert.equal(commitments.markNotified(id, '2026-08-25T16:00:00.000Z'), true);
+    const notifiedAt = commitments.getById(id)?.notifiedAt;
+
+    const repositoryResult = commitments.reschedule(id, dueAt);
+    assert.deepEqual(repositoryResult, {
+      changed: false,
+      reason: 'unchanged',
+      hadPreviousDueAt: true,
+      notificationReset: false,
+    });
+    assert.equal(commitments.getById(id)?.notifiedAt, notifiedAt);
+
+    const capabilityResult = await lifecycle.handle(message(`reprograma compromiso #${id} mañana a las 10`));
+    assert.match(capabilityResult?.reply ?? '', /ya estaba programado/);
+    assert.equal(commitments.getById(id)?.notifiedAt, notifiedAt);
+    assert.doesNotMatch(JSON.stringify(audit.listRecent(10)), /commitment\.rescheduled/);
   } finally { db.close(); }
 });
 
@@ -87,6 +116,7 @@ test('reschedule does not reopen completed or cancelled commitments', () => {
       const before = commitments.getById(id);
       const result = commitments.reschedule(id, '2026-08-26T15:00:00.000Z');
       assert.equal(result.changed, false);
+      assert.equal(result.reason, 'not_open');
       assert.equal(commitments.getById(id)?.status, status);
       assert.equal(commitments.getById(id)?.dueAt, before?.dueAt);
     }
@@ -117,6 +147,26 @@ test('today/week/undated views use America/Lima boundaries and do not mix scopes
     const undated = (await lifecycle.handle(message('compromisos sin fecha')))?.reply ?? '';
     assert.match(undated, /UNDATED/);
     assert.doesNotMatch(undated, /TODAY_PAST|TOMORROW/);
+  } finally { db.close(); }
+});
+
+test('temporal view compacts long bodies and enforces strict total reply bound', async () => {
+  const { db, commitments, lifecycle } = setup();
+  try {
+    for (let index = 0; index < 10; index += 1) {
+      commitments.create({
+        body: `LONG_${index} ${'x'.repeat(1_900)}`,
+        dueAt: new Date(Date.parse('2026-08-24T20:00:00.000Z') + index * 60_000).toISOString(),
+      });
+    }
+
+    const reply = (await lifecycle.handle(message('compromisos hoy', 'bounded-view')))?.reply ?? '';
+    assert.ok(reply.length <= 3_500, `reply length was ${reply.length}`);
+    assert.match(reply, /LONG_0/);
+    assert.ok(reply.includes('…'));
+    for (const line of reply.split('\n').slice(1)) {
+      assert.ok(line.length < 400, `line length was ${line.length}`);
+    }
   } finally { db.close(); }
 });
 
