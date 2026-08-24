@@ -59,19 +59,20 @@ reprograma compromiso #3 mañana a las 10
 mueve compromiso #3 miércoles a las 9
 ```
 
-Las vistas `hoy` y `semana` usan los mismos límites deterministas `America/Lima` del resto de la aplicación y consultas de intervalo `[inicio, fin)`. Solo incluyen compromisos `open`; `sin fecha` incluye únicamente `due_at IS NULL`.
+Las vistas `hoy` y `semana` usan los mismos límites deterministas `America/Lima` del resto de la aplicación y consultas de intervalo `[inicio, fin)`. Solo incluyen compromisos `open`; `sin fecha` incluye únicamente `due_at IS NULL`. Cada body se compacta/trunca y la respuesta completa está limitada a 3500 caracteres.
 
 Reprogramar:
 
 - exige un id existente en estado `open`;
 - exige una nueva fecha/hora futura válida;
 - reutiliza el parser temporal determinista existente;
-- cambia solo `due_at` y `updated_at`;
-- limpia `notified_at` para que, si Stage 6B está habilitado, el compromiso pueda avisarse una vez al llegar el nuevo vencimiento;
+- cambia `due_at`, actualiza `updated_at` y limpia `notified_at` únicamente cuando el vencimiento realmente cambia;
+- si la fecha/hora pedida coincide exactamente con el vencimiento actual, es un no-op y conserva `notified_at`, evitando rearmar por accidente una notificación ya entregada;
+- si el vencimiento cambia, `notified_at` queda limpio para que, si Stage 6B está habilitado, el compromiso pueda avisarse una vez al llegar el nuevo vencimiento;
 - no reabre compromisos `completed` o `cancelled`;
 - no crea `action_request` ni hace tráfico de red.
 
-El audit de reprogramación conserva solo id y metadata estructural (`hadPreviousDueAt`, `notificationReset`); no guarda body ni la fecha/hora exacta nueva.
+El audit de una reprogramación efectiva conserva solo id y metadata estructural (`hadPreviousDueAt`, `notificationReset`); no guarda body ni la fecha/hora exacta nueva. Un no-op no genera `commitment.rescheduled`.
 
 ## Límites de seguridad
 
@@ -92,7 +93,8 @@ No se afirma exactly-once distribuido. El envío remoto ocurre antes de persisti
 - una entrega en operación normal;
 - retry después de fallo antes/durante `sendText()`;
 - sin reenvío después de que `notified_at` quedó persistido;
-- después de una reprogramación explícita 6C, una nueva entrega es elegible únicamente al alcanzar el nuevo vencimiento.
+- después de una reprogramación explícita 6C a un vencimiento realmente distinto, una nueva entrega es elegible únicamente al alcanzar el nuevo vencimiento;
+- reprogramar al mismo vencimiento no vuelve a habilitar una notificación ya marcada.
 
 Ese crash-window debe validarse con la línea WhatsApp QA antes de activar Stage 6B de forma permanente.
 
