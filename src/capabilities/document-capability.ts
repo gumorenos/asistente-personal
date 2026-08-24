@@ -34,13 +34,25 @@ function compact(text: string): string {
 export class DocumentCapability implements Capability {
   readonly name = 'documents';
 
+  private readonly documents: DocumentRepository;
+  private readonly audit: AuditRepository;
+  private readonly extractor: DocumentExtractor | undefined;
+  private readonly config: DocumentCapabilityConfig;
+  private readonly semantic: DocumentSemanticService | undefined;
+
   constructor(
-    private readonly documents: DocumentRepository,
-    private readonly audit: AuditRepository,
-    private readonly extractor: DocumentExtractor | undefined,
-    private readonly config: DocumentCapabilityConfig,
-    private readonly semantic?: DocumentSemanticService,
-  ) {}
+    documents: DocumentRepository,
+    audit: AuditRepository,
+    extractor: DocumentExtractor | undefined,
+    config: DocumentCapabilityConfig,
+    semantic?: DocumentSemanticService,
+  ) {
+    this.documents = documents;
+    this.audit = audit;
+    this.extractor = extractor;
+    this.config = config;
+    this.semantic = semantic;
+  }
 
   async handle(message: IncomingMessage): Promise<CapabilityResult | undefined> {
     if (message.kind === 'document') return this.handleDocument(message);
