@@ -4,10 +4,12 @@ import type { AiProvider } from './ai/types.ts';
 import { BriefingService } from './briefing/briefing-service.ts';
 import { CalendarActionExecutor } from './calendar/calendar-action-executor.ts';
 import { CalendarReadService } from './calendar/calendar-read-service.ts';
+import { CalendarSlotSuggestionService } from './calendar/calendar-slot-suggestion-service.ts';
 import { GoogleCalendarProvider } from './calendar/google-calendar-provider.ts';
 import { GoogleCalendarReadProvider } from './calendar/google-calendar-read-provider.ts';
 import { GoogleOAuthAccessTokenProvider } from './calendar/google-oauth-token-provider.ts';
 import { loadCalendarReadConfig } from './calendar/read-config.ts';
+import { loadCalendarSlotSuggestionConfig } from './calendar/slot-suggestion-config.ts';
 import { ActionApprovalCapability } from './capabilities/action-approval-capability.ts';
 import { ActionExecutionCapability } from './capabilities/action-execution-capability.ts';
 import { AiCapability } from './capabilities/ai-capability.ts';
@@ -15,6 +17,7 @@ import { AudioTranscriptionCapability } from './capabilities/audio-transcription
 import { BriefingCapability } from './capabilities/briefing-capability.ts';
 import { CalendarProposalCapability } from './capabilities/calendar-proposal-capability.ts';
 import { CalendarReadCapability } from './capabilities/calendar-read-capability.ts';
+import { CalendarSlotSuggestionCapability } from './capabilities/calendar-slot-suggestion-capability.ts';
 import { DocumentCapability } from './capabilities/document-capability.ts';
 import { DocumentLifecycleCapability } from './capabilities/document-lifecycle-capability.ts';
 import { DocumentQaCapability } from './capabilities/document-qa-capability.ts';
@@ -70,6 +73,7 @@ import { BaileysWhatsAppTransport } from './transports/whatsapp/baileys-transpor
 const config = loadConfig();
 const documentQaConfig = loadDocumentQaConfig(config);
 const calendarReadConfig = loadCalendarReadConfig(config);
+const calendarSlotSuggestionConfig = loadCalendarSlotSuggestionConfig(config, calendarReadConfig);
 const database = new AppDatabase(config.dbPath);
 const messages = new MessageRepository(database);
 const notes = new NoteRepository(database);
@@ -191,6 +195,10 @@ if (calendarReadConfig.enabled) {
   calendarReadService = new CalendarReadService(calendarReadProvider, calendarReadConfig, config.timeZone);
 }
 
+const calendarSlotSuggestionService = calendarSlotSuggestionConfig.enabled && calendarReadService
+  ? new CalendarSlotSuggestionService(calendarReadService, calendarSlotSuggestionConfig)
+  : undefined;
+
 let briefingScheduler: BriefingScheduler | undefined;
 if (config.briefing.enabled) {
   briefingScheduler = new BriefingScheduler(
@@ -244,7 +252,13 @@ const capabilities: Capability[] = [
   new ObserverSearchCapability(observedChats, observationSink, audit, config.timeZone),
   new ObserverReadCapability(observedChats, observationSink, audit, config.timeZone),
   new MemorySearchCapability(memorySearch, audit, config.timeZone),
-  // Read commands are exact matches, so event-creation syntax still falls through to proposal parsing.
+  // Read/suggestion commands are exact matches, so event-creation syntax still falls through to proposal parsing.
+  new CalendarSlotSuggestionCapability(
+    calendarSlotSuggestionService,
+    audit,
+    calendarSlotSuggestionConfig,
+    config.timeZone,
+  ),
   new CalendarReadCapability(calendarReadService, audit, calendarReadConfig, config.timeZone),
   new CalendarProposalCapability(actions, audit, config.timeZone),
   new ActionApprovalCapability(actions, audit),
@@ -304,6 +318,8 @@ try {
     calendarReadWindow: calendarReadConfig.enabled
       ? `${String(Math.floor(calendarReadConfig.dayStartMinutes / 60)).padStart(2, '0')}:${String(calendarReadConfig.dayStartMinutes % 60).padStart(2, '0')}-${String(Math.floor(calendarReadConfig.dayEndMinutes / 60)).padStart(2, '0')}:${String(calendarReadConfig.dayEndMinutes % 60).padStart(2, '0')}`
       : undefined,
+    calendarSlotSuggestionsEnabled: calendarSlotSuggestionConfig.enabled,
+    calendarSlotSuggestionLimit: calendarSlotSuggestionConfig.enabled ? calendarSlotSuggestionConfig.maxSuggestions : undefined,
     calendarWritesEnabled: config.calendar.enabled,
     calendarProvider: config.calendar.enabled || calendarReadConfig.enabled ? config.calendar.provider : 'disabled',
     dailyBriefingEnabled: config.briefing.enabled,
