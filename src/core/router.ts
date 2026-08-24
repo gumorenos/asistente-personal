@@ -8,7 +8,7 @@ export function routeMessage(message: IncomingMessage): RouteResult {
   if (['ping', '/ping'].includes(text)) return { handled: true, reply: 'pong' };
 
   if (['estado', '/estado', 'status'].includes(text)) {
-    return { handled: true, reply: '✅ Asistente activo. Usa “chats observados” para comprobar el estado y la allowlist de Observer.' };
+    return { handled: true, reply: '✅ Asistente activo. Usa “ayuda” para ver las capacidades explícitas y “chats observados” para Observer.' };
   }
 
   if (['ayuda', '/ayuda', 'help'].includes(text)) {
@@ -22,10 +22,18 @@ export function routeMessage(message: IncomingMessage): RouteResult {
         '• gasté <monto> soles en <descripción> #<categoría>',
         '• gastos hoy / semana / mes / resumen gastos mes',
         '• recuérdame <fecha/hora> <texto> / recordatorios',
-        '• agenda mañana a las 10 reunión por 30 minutos',
+        '• agenda hoy / agenda mañana / agenda semana — lectura, si CALENDAR_READ_ENABLED=true',
+        '• disponibilidad hoy / disponibilidad mañana — lectura free/busy',
+        '• agenda mañana a las 10 reunión por 30 minutos — propuesta de escritura',
         '• acciones',
         '• aprueba acción #N / rechaza acción #N',
-        '• ejecuta acción #N — solo si CALENDAR_ENABLED=true',
+        '• ejecuta acción #N — writes solo si CALENDAR_ENABLED=true',
+        '• documentos / documento #N',
+        '• elimina documento #N — requiere aprobación + ejecución',
+        '• busca documentos <texto>',
+        '• busca semántica documentos <texto> / busca híbrida documentos <texto>',
+        '• pregunta documentos <pregunta>',
+        '• semántica status / reindexa documento #N',
         '• observa chat <jid> como <etiqueta>',
         '• chats observados',
         '• observaciones <jid> [1-10]',
@@ -33,10 +41,10 @@ export function routeMessage(message: IncomingMessage): RouteResult {
         '• ia <pregunta>',
         '• audio: transcripción solo si está habilitada',
         '',
-        'Observer es opt-in con OBSERVER_ENABLED=true y solo persiste texto de chats allowlisted; no responde ni ejecuta acciones.',
-        'La lectura de observaciones es local, explícita y acotada por JID exacto; no usa IA.',
-        'El briefing automático y Calendar writes permanecen opt-in.',
-        'Documentos y agentes externos siguen deshabilitados.',
+        'Calendar read y Calendar writes tienen flags independientes; leer nunca ejecuta una acción.',
+        'Observer es opt-in, solo persiste texto allowlisted y no responde ni ejecuta acciones.',
+        'La lectura/búsqueda de Observer es local, explícita y acotada por JID exacto; no usa IA.',
+        'PDF/OCR, embeddings, Q&A, IA y transcripción conservan opt-ins separados.',
       ].join('\n'),
     };
   }

@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
+import { loadCalendarReadConfig, type CalendarReadConfig } from '../calendar/read-config.ts';
 import { loadConfig, type AppConfig } from '../config.ts';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
@@ -89,11 +90,17 @@ function inspectDatabase(config: AppConfig, checks: DoctorCheck[]): void {
   }
 }
 
+function formatClock(minutes: number): string {
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+}
+
 export function runDoctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
   const checks: DoctorCheck[] = [];
   let config: AppConfig;
+  let calendarRead: CalendarReadConfig;
   try {
     config = loadConfig(env);
+    calendarRead = loadCalendarReadConfig(config, env);
     add(checks, 'config', 'pass', 'configuration valid');
   } catch (error) {
     add(checks, 'config', 'fail', error instanceof Error ? error.message : String(error));
@@ -127,7 +134,10 @@ export function runDoctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
   add(checks, 'feature.transcription', 'pass', config.transcription.enabled ? 'enabled (connectivity not tested)' : 'disabled');
   add(checks, 'feature.semantic', 'pass', config.semantic.enabled ? 'enabled' : 'disabled');
   add(checks, 'feature.embeddings', 'pass', config.semantic.embeddings.enabled ? 'enabled (connectivity not tested)' : 'disabled');
-  add(checks, 'feature.calendar', 'pass', config.calendar.enabled ? 'enabled (connectivity not tested)' : 'disabled');
+  add(checks, 'feature.calendar_read', 'pass', calendarRead.enabled
+    ? `enabled (${formatClock(calendarRead.dayStartMinutes)}-${formatClock(calendarRead.dayEndMinutes)}; connectivity not tested)`
+    : 'disabled');
+  add(checks, 'feature.calendar_write', 'pass', config.calendar.enabled ? 'enabled (connectivity not tested)' : 'disabled');
   add(checks, 'feature.observer', 'pass', config.observer.enabled ? 'enabled' : 'disabled');
   add(checks, 'feature.document_retention', 'pass', config.documents.retention.enabled ? `enabled (${config.documents.retention.days} days)` : 'disabled');
 

@@ -3,14 +3,18 @@ import { OpenAICompatibleProvider } from './ai/openai-compatible-provider.ts';
 import type { AiProvider } from './ai/types.ts';
 import { BriefingService } from './briefing/briefing-service.ts';
 import { CalendarActionExecutor } from './calendar/calendar-action-executor.ts';
+import { CalendarReadService } from './calendar/calendar-read-service.ts';
 import { GoogleCalendarProvider } from './calendar/google-calendar-provider.ts';
+import { GoogleCalendarReadProvider } from './calendar/google-calendar-read-provider.ts';
 import { GoogleOAuthAccessTokenProvider } from './calendar/google-oauth-token-provider.ts';
+import { loadCalendarReadConfig } from './calendar/read-config.ts';
 import { ActionApprovalCapability } from './capabilities/action-approval-capability.ts';
 import { ActionExecutionCapability } from './capabilities/action-execution-capability.ts';
 import { AiCapability } from './capabilities/ai-capability.ts';
 import { AudioTranscriptionCapability } from './capabilities/audio-transcription-capability.ts';
 import { BriefingCapability } from './capabilities/briefing-capability.ts';
 import { CalendarProposalCapability } from './capabilities/calendar-proposal-capability.ts';
+import { CalendarReadCapability } from './capabilities/calendar-read-capability.ts';
 import { DocumentCapability } from './capabilities/document-capability.ts';
 import { DocumentLifecycleCapability } from './capabilities/document-lifecycle-capability.ts';
 import { DocumentQaCapability } from './capabilities/document-qa-capability.ts';
@@ -65,6 +69,7 @@ import { BaileysWhatsAppTransport } from './transports/whatsapp/baileys-transpor
 
 const config = loadConfig();
 const documentQaConfig = loadDocumentQaConfig(config);
+const calendarReadConfig = loadCalendarReadConfig(config);
 const database = new AppDatabase(config.dbPath);
 const messages = new MessageRepository(database);
 const notes = new NoteRepository(database);
@@ -158,19 +163,32 @@ const documentQaService = documentQaConfig.enabled && aiProvider
   ? new DocumentQaService(hybridDocumentSearch, aiProvider, documentQaConfig)
   : undefined;
 
-let calendarExecutor: CalendarActionExecutor | undefined;
-if (config.calendar.enabled) {
-  const tokenProvider = new GoogleOAuthAccessTokenProvider({
+let googleCalendarTokenProvider: GoogleOAuthAccessTokenProvider | undefined;
+if (config.calendar.enabled || calendarReadConfig.enabled) {
+  googleCalendarTokenProvider = new GoogleOAuthAccessTokenProvider({
     clientId: config.calendar.clientId!,
     clientSecret: config.calendar.clientSecret!,
     refreshToken: config.calendar.refreshToken!,
     timeoutMs: config.calendar.timeoutMs,
   });
+}
+
+let calendarExecutor: CalendarActionExecutor | undefined;
+if (config.calendar.enabled) {
   const calendarProvider = new GoogleCalendarProvider({
     calendarId: config.calendar.calendarId,
     timeoutMs: config.calendar.timeoutMs,
-  }, tokenProvider);
+  }, googleCalendarTokenProvider!);
   calendarExecutor = new CalendarActionExecutor(actions, actionExecutions, audit, calendarProvider);
+}
+
+let calendarReadService: CalendarReadService | undefined;
+if (calendarReadConfig.enabled) {
+  const calendarReadProvider = new GoogleCalendarReadProvider({
+    calendarId: config.calendar.calendarId,
+    timeoutMs: config.calendar.timeoutMs,
+  }, googleCalendarTokenProvider!);
+  calendarReadService = new CalendarReadService(calendarReadProvider, calendarReadConfig, config.timeZone);
 }
 
 let briefingScheduler: BriefingScheduler | undefined;
@@ -226,6 +244,8 @@ const capabilities: Capability[] = [
   new ObserverSearchCapability(observedChats, observationSink, audit, config.timeZone),
   new ObserverReadCapability(observedChats, observationSink, audit, config.timeZone),
   new MemorySearchCapability(memorySearch, audit, config.timeZone),
+  // Read commands are exact matches, so event-creation syntax still falls through to proposal parsing.
+  new CalendarReadCapability(calendarReadService, audit, calendarReadConfig, config.timeZone),
   new CalendarProposalCapability(actions, audit, config.timeZone),
   new ActionApprovalCapability(actions, audit),
   new ActionExecutionCapability(actions, config.calendar.enabled, calendarExecutor, documentActionExecutor),
@@ -280,8 +300,12 @@ try {
     embeddingsProvider: config.semantic.embeddings.enabled ? config.semantic.embeddings.provider : 'disabled',
     embeddingsDimensions: config.semantic.embeddings.enabled ? config.semantic.embeddings.dimensions : undefined,
     documentQaEnabled: documentQaConfig.enabled,
+    calendarReadsEnabled: calendarReadConfig.enabled,
+    calendarReadWindow: calendarReadConfig.enabled
+      ? `${String(Math.floor(calendarReadConfig.dayStartMinutes / 60)).padStart(2, '0')}:${String(calendarReadConfig.dayStartMinutes % 60).padStart(2, '0')}-${String(Math.floor(calendarReadConfig.dayEndMinutes / 60)).padStart(2, '0')}:${String(calendarReadConfig.dayEndMinutes % 60).padStart(2, '0')}`
+      : undefined,
     calendarWritesEnabled: config.calendar.enabled,
-    calendarProvider: config.calendar.enabled ? config.calendar.provider : 'disabled',
+    calendarProvider: config.calendar.enabled || calendarReadConfig.enabled ? config.calendar.provider : 'disabled',
     dailyBriefingEnabled: config.briefing.enabled,
     dailyBriefingTime: `${String(config.briefing.hour).padStart(2, '0')}:${String(config.briefing.minute).padStart(2, '0')}`,
     observerEnabled: config.observer.enabled,
