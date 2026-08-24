@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { runMigrations } from './migrations.ts';
 import { runStage4Migration } from './stage4-migration.ts';
 import { runStage4dMigration } from './stage4d-migration.ts';
+import { runStage6Migration } from './stage6-migration.ts';
 
 export class AppDatabase {
   readonly native: DatabaseSync;
@@ -30,6 +31,7 @@ export class AppDatabase {
     runMigrations(this.native);
     runStage4Migration(this.native);
     runStage4dMigration(this.native);
+    runStage6Migration(this.native);
   }
 
   ping(): boolean {
