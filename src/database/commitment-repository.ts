@@ -1,0 +1,108 @@
+import type { AppDatabase } from './db.ts';
+
+export type CommitmentStatus = 'open' | 'completed' | 'cancelled';
+
+export interface CommitmentInput {
+  body: string;
+  dueAt?: string;
+}
+
+export interface CommitmentRecord extends CommitmentInput {
+  id: number;
+  status: CommitmentStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface RawCommitmentRow {
+  id: number;
+  body: string;
+  due_at: string | null;
+  status: CommitmentStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+const MAX_BODY_CHARS = 2_000;
+
+export class CommitmentRepository {
+  private readonly database: AppDatabase;
+
+  constructor(database: AppDatabase) {
+    this.database = database;
+  }
+
+  create(input: CommitmentInput): number {
+    const body = input.body.trim();
+    if (!body || body.length > MAX_BODY_CHARS) throw new Error('Invalid commitment body');
+    if (input.dueAt && !Number.isFinite(new Date(input.dueAt).getTime())) throw new Error('Invalid commitment due date');
+
+    const result = this.database.native.prepare(`
+      INSERT INTO commitments(body, due_at)
+      VALUES (?, ?)
+    `).run(body, input.dueAt ?? null);
+    return Number(result.lastInsertRowid);
+  }
+
+  getById(id: number): CommitmentRecord | undefined {
+    if (!Number.isSafeInteger(id) || id < 1) return undefined;
+    const row = this.database.native.prepare(`
+      SELECT id, body, due_at, status, created_at, updated_at
+      FROM commitments
+      WHERE id = ?
+    `).get(id) as unknown as RawCommitmentRow | undefined;
+    return row ? mapRow(row) : undefined;
+  }
+
+  listOpen(limit = 10): CommitmentRecord[] {
+    validateLimit(limit);
+    const rows = this.database.native.prepare(`
+      SELECT id, body, due_at, status, created_at, updated_at
+      FROM commitments
+      WHERE status = 'open'
+      ORDER BY CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at ASC, id DESC
+      LIMIT ?
+    `).all(limit) as unknown as RawCommitmentRow[];
+    return rows.map(mapRow);
+  }
+
+  listOverdue(nowIso: string, limit = 10): CommitmentRecord[] {
+    validateLimit(limit);
+    if (!Number.isFinite(new Date(nowIso).getTime())) throw new Error('Invalid commitment overdue boundary');
+    const rows = this.database.native.prepare(`
+      SELECT id, body, due_at, status, created_at, updated_at
+      FROM commitments
+      WHERE status = 'open'
+        AND due_at IS NOT NULL
+        AND due_at <= ?
+      ORDER BY due_at ASC, id ASC
+      LIMIT ?
+    `).all(nowIso, limit) as unknown as RawCommitmentRow[];
+    return rows.map(mapRow);
+  }
+
+  setStatus(id: number, status: 'completed' | 'cancelled'): boolean {
+    if (!Number.isSafeInteger(id) || id < 1) return false;
+    const result = this.database.native.prepare(`
+      UPDATE commitments
+      SET status = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND status = 'open'
+    `).run(status, id);
+    return Number(result.changes) === 1;
+  }
+}
+
+function validateLimit(limit: number): void {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('Invalid commitment list limit');
+}
+
+function mapRow(row: RawCommitmentRow): CommitmentRecord {
+  return {
+    id: row.id,
+    body: row.body,
+    dueAt: row.due_at ?? undefined,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
