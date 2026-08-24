@@ -6,6 +6,8 @@ Stage 6C agrega vistas temporales locales y reprogramación explícita de compro
 
 ## Gate automatizado
 
+Evidencia completa previa al cierre documental: CI sobre `2835d91cb49793456327054b5b0314f939b3f2ce`.
+
 - [x] TypeScript strict PASS en Node 22.18.
 - [x] Suite completa tras hardening: 279/279 PASS.
 - [x] Runtime dependency audit: 0 vulnerabilidades.
@@ -23,8 +25,8 @@ Stage 6C agrega vistas temporales locales y reprogramación explícita de compro
 - [x] Audit de reprogramación efectiva no contiene body ni nueva fecha exacta.
 - [x] Wiring real: `CommitmentCapability` delega comandos Stage 6C antes del handling legacy.
 - [x] Stage 6C no crea `action_request`.
-- [ ] Docker `linux/amd64` PASS en HEAD documental final.
-- [ ] Docker `linux/arm64` PASS en HEAD documental final.
+- [x] Docker `linux/amd64` build + smoke PDF/OCR PASS.
+- [x] Docker `linux/arm64` build + smoke PDF/OCR PASS.
 
 ## QA funcional live — PENDIENTE
 
@@ -77,4 +79,4 @@ Solo si se habilitan notificaciones en la línea WhatsApp QA.
 
 ## Condición de cierre
 
-Stage 6C puede considerarse cerrado a nivel de código cuando el HEAD final tenga suite/typecheck/audit + Docker AMD64/ARM64 verdes. El QA live de timezone/restart y la interacción real con las notificaciones 6B debe permanecer PENDIENTE hasta ejecutarse con evidencia real.
+Stage 6C queda cerrado a nivel de código cuando el HEAD documental posterior repite este gate sin regresiones. El QA live de timezone/restart y la interacción real con las notificaciones 6B permanece PENDIENTE hasta ejecutarse con evidencia real.
