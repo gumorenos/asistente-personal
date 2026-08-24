@@ -2,6 +2,7 @@ import type { IncomingMessage } from '../core/types.ts';
 import type { AuditRepository } from '../database/audit-repository.ts';
 import type { DocumentRepository } from '../database/document-repository.ts';
 import type { DocumentSemanticService } from '../semantic/document-semantic-service.ts';
+import type { HybridDocumentSearchService } from '../semantic/hybrid-document-search-service.ts';
 import type { Capability, CapabilityResult } from './types.ts';
 
 const MAX_ITEM_CHARS = 420;
@@ -19,6 +20,7 @@ export class SemanticDocumentCapability implements Capability {
     private readonly documents: DocumentRepository,
     private readonly semantic: DocumentSemanticService,
     private readonly audit: AuditRepository,
+    private readonly hybrid?: HybridDocumentSearchService,
   ) {}
 
   async handle(message: IncomingMessage): Promise<CapabilityResult | undefined> {
@@ -57,6 +59,42 @@ export class SemanticDocumentCapability implements Capability {
           metadata: { errorType: error instanceof Error ? error.name : 'unknown' },
         });
         return { handled: true, reply: '⚠️ No pude reindexar el documento. El índice anterior se conserva.' };
+      }
+    }
+
+    const hybridSearch = text.match(/^(?:busca|buscar)\s+(?:hibrida|híbrida)\s+documentos?\s+(.+)$/i);
+    if (hybridSearch?.[1]) {
+      if (!this.semantic.enabled || !this.semantic.embeddingsEnabled || !this.hybrid) {
+        return { handled: true, reply: '🧠 La búsqueda híbrida requiere índice semántico y embeddings habilitados.' };
+      }
+      const query = hybridSearch[1].trim();
+      if (!query || query.length > 2_000) return { handled: true, reply: '⚠️ Consulta híbrida inválida.' };
+      try {
+        const hits = await this.hybrid.search(query, 5);
+        this.audit.record({
+          eventType: 'document.hybrid.search',
+          entityType: 'document',
+          metadata: { queryChars: query.length, returned: hits.length, provider: this.semantic.providerName },
+        });
+        if (hits.length === 0) return { handled: true, reply: '🧠 No encontré coincidencias híbridas en tus documentos.' };
+        const lines = [`🧠 Búsqueda híbrida · ${hits.length} documento${hits.length === 1 ? '' : 's'}`];
+        for (const hit of hits) {
+          const signals = [
+            hit.lexicalRank ? `FTS #${hit.lexicalRank}` : undefined,
+            hit.semanticRank ? `semántica #${hit.semanticRank}` : undefined,
+          ].filter(Boolean).join(' + ');
+          const line = `• Documento #${hit.documentId}${signals ? ` · ${signals}` : ''} — ${compact(hit.text)}`;
+          if ([...lines, line].join('\n').length > MAX_REPLY_CHARS) break;
+          lines.push(line);
+        }
+        return { handled: true, reply: lines.join('\n').slice(0, MAX_REPLY_CHARS) };
+      } catch (error) {
+        this.audit.record({
+          eventType: 'document.hybrid.search.failed',
+          entityType: 'document',
+          metadata: { queryChars: query.length, errorType: error instanceof Error ? error.name : 'unknown' },
+        });
+        return { handled: true, reply: '⚠️ No pude completar la búsqueda híbrida. No se ejecutó ninguna acción.' };
       }
     }
 
