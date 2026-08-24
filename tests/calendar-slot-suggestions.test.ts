@@ -160,7 +160,7 @@ test('enabled capability suggests only; it creates no action and audit contains 
     const response = await capability.handle(message('propón horarios hoy para 30 minutos'));
     assert.match(response?.reply ?? '', /1\. 09:30–10:00/);
     assert.match(response?.reply ?? '', /Solo son sugerencias/);
-    assert.equal(actions.listPending().length, 0);
+    assert.equal(actions.listPending(fixedNow.toISOString()).length, 0);
 
     const auditJson = JSON.stringify(audit.listRecent(20));
     assert.match(auditJson, /calendar\.slot_suggestions/);
