@@ -23,8 +23,16 @@ function validIsoInstant(value: unknown): value is string {
 }
 
 function validDateOnly(value: unknown): value is string {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  return Number.isFinite(new Date(`${value}T00:00:00Z`).getTime());
+  if (typeof value !== 'string') return false;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const candidate = new Date(Date.UTC(year, month - 1, day));
+  return candidate.getUTCFullYear() === year
+    && candidate.getUTCMonth() + 1 === month
+    && candidate.getUTCDate() === day;
 }
 
 function eventBoundary(value: unknown): { dateTime?: string; date?: string } | undefined {
@@ -94,8 +102,10 @@ export class GoogleCalendarReadProvider implements CalendarReadProvider {
     if (!response.ok) throw new Error(`Google Calendar read failed with HTTP ${response.status}`);
 
     const payload: unknown = await response.json();
-    if (!isRecord(payload) || !Array.isArray(payload.items)) throw new Error('Google Calendar read returned an invalid response');
-    return payload.items.map(normalizeEvent).filter((event): event is CalendarReadEvent => event !== undefined).slice(0, maxResults);
+    if (!isRecord(payload)) throw new Error('Google Calendar read returned an invalid response');
+    const items = payload.items === undefined ? [] : payload.items;
+    if (!Array.isArray(items)) throw new Error('Google Calendar read returned an invalid response');
+    return items.map(normalizeEvent).filter((event): event is CalendarReadEvent => event !== undefined).slice(0, maxResults);
   }
 
   async queryBusy(range: CalendarReadRange): Promise<CalendarBusyInterval[]> {
