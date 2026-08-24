@@ -93,8 +93,9 @@ export class CommitmentCapability implements Capability {
   }
 
   private parseCreatePrefix(text: string): string | undefined {
-    const match = text.match(/^(?:compromiso|me\s+comprometo\s+a|promet[ií])\s+(.+)$/i);
-    return match?.[1]?.trim();
+    const match = text.match(/^(?:compromiso|me\s+comprometo\s+a|promet[ií])(?:\s+(.*))?$/i);
+    if (!match) return undefined;
+    return match[1]?.trim() ?? '';
   }
 
   private parseStatus(text: string): { id: number; status: 'completed' | 'cancelled' } | undefined {
