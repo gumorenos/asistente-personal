@@ -25,6 +25,7 @@ Asistente personal autónomo con WhatsApp como interfaz inicial. El núcleo func
 - **Stage 6B:** notificación opt-in al self-chat de compromisos vencidos; retry local y `notified_at`, sin afirmar exactly-once distribuido.
 - **Stage 6C:** vistas `hoy/semana/sin fecha` y reprogramación local idempotente; un no-op conserva `notified_at` y las respuestas están acotadas.
 - **Stage 6D:** dashboard ejecutivo local con conteos mutuamente excluyentes y prioridades temporales; sin IA, acciones ni nuevos providers.
+- **Stage 7A:** Gmail metadata-only, explícito y opt-in: Inbox/Unread + fecha/From/Subject; sin body, adjuntos, búsqueda libre, persistencia ni mutaciones.
 
 Ningún check manual/live se considera aprobado por los tests automatizados. [`docs/QA-PENDING.md`](docs/QA-PENDING.md) conserva el acumulado histórico; para stages posteriores, el checklist específico `docs/QA-STAGE-*-PENDING.md` correspondiente es la referencia más actual de ese bloque hasta una futura consolidación.
 
@@ -36,6 +37,8 @@ Ningún check manual/live se considera aprobado por los tests automatizados. [`d
 - aprobar una acción no la ejecuta;
 - Calendar write requiere `CALENDAR_ENABLED=true`, acción aprobada y `ejecuta acción #N`;
 - Calendar read, sugerencias y comprobaciones exactas nunca crean acciones ni eventos;
+- Gmail read Stage 7A usa credenciales dedicadas y el scope mínimo `gmail.metadata`; solo pide Inbox/Unread + From/Subject, no body/adjuntos/raw/full ni mutaciones;
+- metadata Gmail no se persiste ni entra en memoria/FTS y no se envía a IA;
 - Observer solo persiste texto de JIDs explícitamente allowlisted;
 - Observer no recibe `AssistantCore`, `MessageTransport`, capabilities de acciones ni providers externos;
 - Observer no puede responder a terceros/grupos ni crear acciones;
@@ -98,6 +101,10 @@ cumplí compromiso #1
 cancela compromiso #2
 busca compromisos dominio
 
+correos
+correos recientes 3
+correos no leídos 5
+
 documentos
 documento #1
 busca documentos contrato
@@ -135,7 +142,7 @@ busca gastos hoy taxi
 busca desde 2026-08-01 hasta 2026-08-20 proyecto
 ```
 
-Fuentes: mensajes self-chat ya autorizados, notas, recordatorios, gastos, compromisos y documentos indexados. Query y resultados no se guardan en audit; Observer usa su propio índice/comando y siempre un JID exacto.
+Fuentes: mensajes self-chat ya autorizados, notas, recordatorios, gastos, compromisos y documentos indexados. Query y resultados no se guardan en audit; Observer usa su propio índice/comando y siempre un JID exacto. Gmail Stage 7A no entra en esta memoria ni se persiste.
 
 Ver [`docs/STAGE-3-LOCAL-SEARCH.md`](docs/STAGE-3-LOCAL-SEARCH.md).
 
@@ -267,6 +274,26 @@ No se afirma exactly-once distribuido: existe un crash-window si WhatsApp acepta
 
 Ver [`docs/STAGE-6-COMMITMENTS.md`](docs/STAGE-6-COMMITMENTS.md).
 
+## Gmail metadata-only — Stage 7A
+
+Stage 7A usa credenciales OAuth Gmail dedicadas y está deshabilitado por defecto. El scope mínimo previsto es `https://www.googleapis.com/auth/gmail.metadata`.
+
+```env
+GMAIL_READ_ENABLED=false
+GMAIL_CLIENT_ID=
+GMAIL_CLIENT_SECRET=
+GMAIL_REFRESH_TOKEN=
+GMAIL_TIMEOUT_MS=20000
+GMAIL_READ_MAX_MESSAGES=5
+GMAIL_READ_MAX_REPLY_CHARS=3500
+```
+
+`correos` y `correos recientes [N]` consultan `INBOX`; `correos no leídos [N]` agrega `UNREAD`. La lista no usa `q`; cada mensaje se consulta con `format=metadata` y únicamente headers `From`/`Subject` más metadata estructural. Los headers se tratan como input externo no confiable y se eliminan caracteres de control/formato antes de mostrarlos.
+
+Stage 7A no solicita body, snippet, attachments, MIME parts, `format=full/raw`, búsqueda Gmail libre ni historial. No persiste emails, no los indexa, no los manda a IA y no cambia leído/labels/archive/trash. Tampoco implementa send/reply/forward/drafts.
+
+Ver [`docs/STAGE-7-GMAIL.md`](docs/STAGE-7-GMAIL.md).
+
 ## IA explícita — Stage 2A
 
 Solo el texto tras `ia`/`ai` sale al proveedor. No se adjunta contexto personal automáticamente.
@@ -347,6 +374,7 @@ curl http://127.0.0.1:8787/readyz
 - [`docs/STAGE-3-LOCAL-SEARCH.md`](docs/STAGE-3-LOCAL-SEARCH.md)
 - [`docs/STAGE-4-DOCUMENTS.md`](docs/STAGE-4-DOCUMENTS.md)
 - [`docs/STAGE-6-COMMITMENTS.md`](docs/STAGE-6-COMMITMENTS.md)
+- [`docs/STAGE-7-GMAIL.md`](docs/STAGE-7-GMAIL.md)
 - [`docs/QA-PENDING.md`](docs/QA-PENDING.md)
 - [`docs/QA-STAGE-4E-PENDING.md`](docs/QA-STAGE-4E-PENDING.md)
 - [`docs/QA-STAGE-5A-PENDING.md`](docs/QA-STAGE-5A-PENDING.md)
@@ -356,16 +384,18 @@ curl http://127.0.0.1:8787/readyz
 - [`docs/QA-STAGE-6B-PENDING.md`](docs/QA-STAGE-6B-PENDING.md)
 - [`docs/QA-STAGE-6C-PENDING.md`](docs/QA-STAGE-6C-PENDING.md)
 - [`docs/QA-STAGE-6D-PENDING.md`](docs/QA-STAGE-6D-PENDING.md)
+- [`docs/QA-STAGE-7A-PENDING.md`](docs/QA-STAGE-7A-PENDING.md)
 
 ## Próximos bloques
 
 1. mantener acumulado el QA real de WhatsApp/RPi/Google/proveedores sin convertir tests automatizados en falsos PASS live;
 2. cerrar QA real de Stage 6A–6D con la línea WhatsApp QA, incluyendo restart/retry, límites temporales, dashboard y el crash-window de notificaciones;
-3. cerrar QA real de documentos/OCR/lifecycle/semantic/Q&A con corpus QA no sensible antes de habilitar documentos personales sensibles;
-4. cerrar QA read-only real de Calendar 5A–5C con un Calendar QA y token de scopes mínimos;
-5. evaluar la siguiente capacidad local de alto valor antes de considerar detección automática de promesas desde conversaciones;
-6. mantener OpenClaw, Claude Code, Codex y otros agentes como adaptadores opcionales, nunca como dependencia del producto.
+3. cerrar QA real de Gmail 7A con una cuenta/corpus QA y token `gmail.metadata` antes de considerar body, search o writes;
+4. cerrar QA real de documentos/OCR/lifecycle/semantic/Q&A con corpus QA no sensible antes de habilitar documentos personales sensibles;
+5. cerrar QA read-only real de Calendar 5A–5C con un Calendar QA y token de scopes mínimos;
+6. evaluar cualquier ampliación Gmail (body/search/write/send) como boundary separado, no como extensión implícita de 7A;
+7. mantener OpenClaw, Claude Code, Codex y otros agentes como adaptadores opcionales, nunca como dependencia del producto.
 
 ## Aviso
 
-Baileys interactúa con WhatsApp Web y no es la API oficial de WhatsApp Business. El proyecto es para uso personal y conservador. Observer puede almacenar contenido de terceros cuando está activado y el chat fue autorizado; antes de usarlo con conversaciones reales deben revisarse necesidad, consentimiento aplicable, minimización y retención. Documentos y Calendar pueden contener información sensible y deben usar permisos mínimos, backups controlados y políticas de retención explícitas. No debe usarse para spam, outreach automatizado, vigilancia abusiva ni mensajería masiva.
+Baileys interactúa con WhatsApp Web y no es la API oficial de WhatsApp Business. El proyecto es para uso personal y conservador. Observer puede almacenar contenido de terceros cuando está activado y el chat fue autorizado; antes de usarlo con conversaciones reales deben revisarse necesidad, consentimiento aplicable, minimización y retención. Documentos, Calendar y Gmail pueden contener información sensible y deben usar permisos mínimos, credenciales separadas cuando corresponda, backups controlados y políticas de retención explícitas. No debe usarse para spam, outreach automatizado, vigilancia abusiva ni mensajería masiva.
