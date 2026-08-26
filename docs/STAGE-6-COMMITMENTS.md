@@ -74,14 +74,55 @@ Reprogramar:
 
 El audit de una reprogramación efectiva conserva solo id y metadata estructural (`hadPreviousDueAt`, `notificationReset`); no guarda body ni la fecha/hora exacta nueva. Un no-op no genera `commitment.rescheduled`.
 
+## Stage 6D: dashboard ejecutivo local
+
+Stage 6D agrega una vista explícita para contestar “qué tan cargados están mis compromisos” sin reutilizar el briefing ni introducir IA.
+
+Comandos equivalentes:
+
+```text
+resumen compromisos
+estado compromisos
+panel compromisos
+```
+
+El resumen divide todos los compromisos `open` en cinco buckets mutuamente excluyentes:
+
+1. `vencidos`: `due_at <= now`;
+2. `hoy, aún por vencer`: `now < due_at < dayEnd`;
+3. `resto de esta semana`: `dayEnd <= due_at < weekEnd`;
+4. `posteriores`: `due_at >= weekEnd`;
+5. `sin fecha`: `due_at IS NULL`.
+
+Los límites diarios/semanales se calculan con `APP_TIME_ZONE` (`America/Lima` por defecto) y la suma de los cinco buckets debe coincidir siempre con el total `open`. Los conteos se calculan directamente en SQLite y no heredan el límite máximo de los listados.
+
+Además del total, la respuesta muestra como máximo:
+
+- tres compromisos vencidos en orden de vencimiento/id;
+- tres próximos compromisos estrictamente futuros en orden de vencimiento/id.
+
+Cada body se compacta y limita a 240 caracteres; la respuesta total queda acotada a 3500 caracteres. Los compromisos sin fecha se resumen como conteo y se revisan con `compromisos sin fecha`.
+
+El audit `commitment.summary` conserva únicamente conteos agregados y cuántas filas se mostraron. No guarda body, timestamps exactos de vencimiento ni query libre.
+
+Stage 6D:
+
+- no crea ni modifica compromisos;
+- no crea `action_request`;
+- no llama IA, Calendar ni transcripción;
+- no depende de Observer;
+- no agrega migración, flag, provider ni scheduler.
+
+El briefing permanece intencionalmente separado: ya muestra hasta cinco compromisos abiertos dentro de un resumen personal más amplio. Stage 6D es una consulta explícita especializada, no otra variante del briefing.
+
 ## Límites de seguridad
 
-Stages 6A–6C:
+Stages 6A–6D:
 
 - no analizan Observer para crear compromisos;
 - no detectan promesas automáticamente;
-- no llaman IA, Calendar ni transcripción;
-- no crean `action_request` por captura/listado/reprogramación/notificación;
+- no llaman IA, Calendar ni transcripción para captura/listado/reprogramación/dashboard;
+- no crean `action_request` por captura/listado/reprogramación/notificación/dashboard;
 - las notificaciones no pueden usar un JID fuera de `WHATSAPP_SELF_JIDS`;
 - audit evita body y timestamps exactos privados;
 - logs de fallo de notificación guardan id + tipo de error, no body/error privado.
@@ -100,4 +141,4 @@ Ese crash-window debe validarse con la línea WhatsApp QA antes de activar Stage
 
 ## Fuera de alcance
 
-El futuro promise detector automático requiere otra etapa con trust boundary y consentimiento independientes. Stage 6 no extrae compromisos de terceros ni convierte automáticamente texto observado en estado accionable. Tampoco reabre compromisos cerrados implícitamente ni implementa snooze/repetición periódica automática.
+El futuro promise detector automático requiere otra etapa con trust boundary y consentimiento independientes. Stage 6 no extrae compromisos de terceros ni convierte automáticamente texto observado en estado accionable. Tampoco reabre compromisos cerrados implícitamente ni implementa snooze/repetición periódica automática. Stage 6D no introduce priorización subjetiva o mediante IA: “prioridad” significa únicamente vencidos más antiguos y próximos vencimientos más cercanos.

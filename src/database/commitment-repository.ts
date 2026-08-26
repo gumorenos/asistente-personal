@@ -23,6 +23,15 @@ export interface CommitmentRescheduleResult {
   notificationReset: boolean;
 }
 
+export interface CommitmentOpenSummary {
+  total: number;
+  overdue: number;
+  today: number;
+  thisWeek: number;
+  later: number;
+  undated: number;
+}
+
 interface RawCommitmentRow {
   id: number;
   body: string;
@@ -31,6 +40,15 @@ interface RawCommitmentRow {
   notified_at: string | null;
   created_at: string;
   updated_at: string;
+}
+
+interface RawCommitmentSummaryRow {
+  total: number | bigint;
+  overdue: number | bigint;
+  today: number | bigint;
+  this_week: number | bigint;
+  later: number | bigint;
+  undated: number | bigint;
 }
 
 const MAX_BODY_CHARS = 2_000;
@@ -95,6 +113,21 @@ export class CommitmentRepository {
     return rows.map(mapRow);
   }
 
+  listOpenUpcoming(afterIso: string, limit = 3): CommitmentRecord[] {
+    validateLimit(limit);
+    validateIso(afterIso, 'Invalid commitment upcoming boundary');
+    const rows = this.database.native.prepare(`
+      SELECT id, body, due_at, status, notified_at, created_at, updated_at
+      FROM commitments
+      WHERE status = 'open'
+        AND due_at IS NOT NULL
+        AND due_at > ?
+      ORDER BY due_at ASC, id ASC
+      LIMIT ?
+    `).all(afterIso, limit) as unknown as RawCommitmentRow[];
+    return rows.map(mapRow);
+  }
+
   listOpenUndated(limit = 10): CommitmentRecord[] {
     validateLimit(limit);
     const rows = this.database.native.prepare(`
@@ -105,6 +138,37 @@ export class CommitmentRepository {
       LIMIT ?
     `).all(limit) as unknown as RawCommitmentRow[];
     return rows.map(mapRow);
+  }
+
+  summarizeOpen(nowIso: string, dayEndIso: string, weekEndIso: string): CommitmentOpenSummary {
+    validateIso(nowIso, 'Invalid commitment summary now boundary');
+    validateIso(dayEndIso, 'Invalid commitment summary day boundary');
+    validateIso(weekEndIso, 'Invalid commitment summary week boundary');
+    const nowMs = new Date(nowIso).getTime();
+    const dayEndMs = new Date(dayEndIso).getTime();
+    const weekEndMs = new Date(weekEndIso).getTime();
+    if (nowMs >= dayEndMs || dayEndMs > weekEndMs) throw new Error('Invalid commitment summary boundaries');
+
+    const row = this.database.native.prepare(`
+      SELECT
+        COUNT(*) AS total,
+        SUM(CASE WHEN due_at IS NOT NULL AND due_at <= ? THEN 1 ELSE 0 END) AS overdue,
+        SUM(CASE WHEN due_at IS NOT NULL AND due_at > ? AND due_at < ? THEN 1 ELSE 0 END) AS today,
+        SUM(CASE WHEN due_at IS NOT NULL AND due_at >= ? AND due_at < ? THEN 1 ELSE 0 END) AS this_week,
+        SUM(CASE WHEN due_at IS NOT NULL AND due_at >= ? THEN 1 ELSE 0 END) AS later,
+        SUM(CASE WHEN due_at IS NULL THEN 1 ELSE 0 END) AS undated
+      FROM commitments
+      WHERE status = 'open'
+    `).get(nowIso, nowIso, dayEndIso, dayEndIso, weekEndIso, weekEndIso) as unknown as RawCommitmentSummaryRow;
+
+    return {
+      total: Number(row.total),
+      overdue: Number(row.overdue),
+      today: Number(row.today),
+      thisWeek: Number(row.this_week),
+      later: Number(row.later),
+      undated: Number(row.undated),
+    };
   }
 
   listOverdue(nowIso: string, limit = 10): CommitmentRecord[] {
