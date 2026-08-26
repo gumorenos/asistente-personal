@@ -17,6 +17,29 @@ test('doctor reports Gmail metadata read without performing provider connectivit
     report.checks.find((check) => check.name === 'feature.gmail_metadata_read')?.detail,
     'enabled (4 max; metadata/headers only; connectivity not tested)',
   );
+  assert.equal(
+    report.checks.find((check) => check.name === 'feature.gmail_content_read')?.detail,
+    'disabled',
+  );
+});
+
+test('doctor reports Gmail content read separately and performs no provider connectivity work', () => {
+  const report = runDoctor({
+    APP_DB_PATH: ':memory:',
+    GMAIL_READ_ENABLED: 'true',
+    GMAIL_CONTENT_READ_ENABLED: 'true',
+    GMAIL_CLIENT_ID: 'gmail-doctor-client',
+    GMAIL_CLIENT_SECRET: 'gmail-doctor-secret',
+    GMAIL_REFRESH_TOKEN: 'gmail-doctor-refresh',
+    GMAIL_CONTENT_MAX_BODY_CHARS: '5000',
+    GMAIL_CONTENT_MAX_THREAD_MESSAGES: '4',
+  });
+
+  assert.equal(report.ok, true);
+  assert.equal(
+    report.checks.find((check) => check.name === 'feature.gmail_content_read')?.detail,
+    'enabled (5000 body chars; 4 thread messages; connectivity not tested)',
+  );
 });
 
 test('doctor fails closed before runtime when Gmail metadata read credentials are incomplete', () => {
@@ -29,4 +52,15 @@ test('doctor fails closed before runtime when Gmail metadata read credentials ar
   assert.equal(report.ok, false);
   assert.equal(report.checks[0]?.name, 'config');
   assert.match(report.checks[0]?.detail ?? '', /GMAIL_CLIENT_SECRET/);
+});
+
+test('doctor fails closed if Gmail content read is enabled without metadata read', () => {
+  const report = runDoctor({
+    APP_DB_PATH: ':memory:',
+    GMAIL_CONTENT_READ_ENABLED: 'true',
+  });
+
+  assert.equal(report.ok, false);
+  assert.equal(report.checks[0]?.name, 'config');
+  assert.match(report.checks[0]?.detail ?? '', /GMAIL_READ_ENABLED=true/);
 });
