@@ -51,3 +51,40 @@ test('multiple decoded text MIME parts share one aggregate byte budget', async (
   );
   assert.equal(call, 2);
 });
+
+test('inline non-text MIME data is not decoded as message content', async () => {
+  let call = 0;
+  const provider = new GoogleGmailMetadataProvider(
+    { timeoutMs: 20_000, apiBaseUrl: 'https://gmail.test/gmail/v1' },
+    tokenProvider(),
+    async () => {
+      call += 1;
+      if (call === 1) {
+        return new Response(JSON.stringify({ id: 'm2', threadId: 't2', sizeEstimate: 100 }));
+      }
+      return new Response(JSON.stringify({
+        id: 'm2',
+        threadId: 't2',
+        internalDate: '1787698800000',
+        sizeEstimate: 100,
+        payload: {
+          mimeType: 'multipart/mixed',
+          headers: [
+            { name: 'From', value: 'qa@example.com' },
+            { name: 'Subject', value: 'binary inline part' },
+          ],
+          parts: [
+            { mimeType: 'text/plain', body: { data: b64url('texto seguro') } },
+            // Deliberately invalid base64url. If the provider tries to decode a non-text
+            // MIME part this test fails; Stage 7B must ignore it instead.
+            { mimeType: 'application/octet-stream', body: { data: '%%%binary%%%' } },
+          ],
+        },
+      }));
+    },
+  );
+
+  const row = await provider.readMessage('m2', { maxBodyChars: 100, maxMessageBytes: 1_000 });
+  assert.equal(row.body, 'texto seguro');
+  assert.equal(call, 2);
+});
