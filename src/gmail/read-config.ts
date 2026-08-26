@@ -42,7 +42,10 @@ export function loadGmailReadConfig(env: NodeJS.ProcessEnv = process.env): Gmail
 
   // Stage 7B is a separate privacy boundary. Validate it during the same local
   // configuration pass so `doctor` fails closed without contacting Gmail.
-  loadGmailBodyReadConfig(env, enabled);
+  const bodyConfig = loadGmailBodyReadConfig(env, enabled);
+  if (bodyConfig.enabled && refreshToken && bodyConfig.refreshToken === refreshToken) {
+    throw new Error('GMAIL_BODY_REFRESH_TOKEN must differ from GMAIL_REFRESH_TOKEN when GMAIL_BODY_READ_ENABLED=true');
+  }
 
   return {
     enabled,
