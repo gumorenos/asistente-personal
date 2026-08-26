@@ -26,6 +26,7 @@ Asistente personal autónomo con WhatsApp como interfaz inicial. El núcleo func
 - **Stage 6C:** vistas `hoy/semana/sin fecha` y reprogramación local idempotente; un no-op conserva `notified_at` y las respuestas están acotadas.
 - **Stage 6D:** dashboard ejecutivo local con conteos mutuamente excluyentes y prioridades temporales; sin IA, acciones ni nuevos providers.
 - **Stage 7A:** Gmail metadata-only, explícito y opt-in: Inbox/Unread + fecha/From/Subject; sin body, adjuntos, búsqueda libre, persistencia ni mutaciones.
+- **Stage 7B:** lectura explícita y acotada de body/hilos Gmail con opt-in adicional; sin attachments, persistencia, IA ni mutaciones.
 
 Ningún check manual/live se considera aprobado por los tests automatizados. [`docs/QA-PENDING.md`](docs/QA-PENDING.md) conserva el acumulado histórico; para stages posteriores, el checklist específico `docs/QA-STAGE-*-PENDING.md` correspondiente es la referencia más actual de ese bloque hasta una futura consolidación.
 
@@ -37,8 +38,10 @@ Ningún check manual/live se considera aprobado por los tests automatizados. [`d
 - aprobar una acción no la ejecuta;
 - Calendar write requiere `CALENDAR_ENABLED=true`, acción aprobada y `ejecuta acción #N`;
 - Calendar read, sugerencias y comprobaciones exactas nunca crean acciones ni eventos;
-- Gmail read Stage 7A usa credenciales dedicadas y el scope mínimo `gmail.metadata`; solo pide Inbox/Unread + From/Subject, no body/adjuntos/raw/full ni mutaciones;
-- metadata Gmail no se persiste ni entra en memoria/FTS y no se envía a IA;
+- Gmail Stage 7A usa credenciales dedicadas y puede limitarse al scope `gmail.metadata`; solo pide Inbox/Unread + From/Subject;
+- Gmail Stage 7B tiene un opt-in distinto y requiere un token body-capable read-only como `gmail.readonly`; no descarga attachment bodies ni realiza mutaciones;
+- metadata y bodies Gmail son efímeros: no se persisten, no entran en memoria/FTS/embeddings y no se envían a IA;
+- bodies Gmail se tratan como texto terminal y jamás se reinyectan como comandos;
 - Observer solo persiste texto de JIDs explícitamente allowlisted;
 - Observer no recibe `AssistantCore`, `MessageTransport`, capabilities de acciones ni providers externos;
 - Observer no puede responder a terceros/grupos ni crear acciones;
@@ -104,6 +107,10 @@ busca compromisos dominio
 correos
 correos recientes 3
 correos no leídos 5
+lee correo 1
+lee correo no leído 1
+lee hilo 1
+lee hilo no leído 1
 
 documentos
 documento #1
@@ -142,7 +149,7 @@ busca gastos hoy taxi
 busca desde 2026-08-01 hasta 2026-08-20 proyecto
 ```
 
-Fuentes: mensajes self-chat ya autorizados, notas, recordatorios, gastos, compromisos y documentos indexados. Query y resultados no se guardan en audit; Observer usa su propio índice/comando y siempre un JID exacto. Gmail Stage 7A no entra en esta memoria ni se persiste.
+Fuentes: mensajes self-chat ya autorizados, notas, recordatorios, gastos, compromisos y documentos indexados. Query y resultados no se guardan en audit; Observer usa su propio índice/comando y siempre un JID exacto. Gmail Stages 7A–7B no entran en esta memoria ni se persisten.
 
 Ver [`docs/STAGE-3-LOCAL-SEARCH.md`](docs/STAGE-3-LOCAL-SEARCH.md).
 
@@ -274,9 +281,11 @@ No se afirma exactly-once distribuido: existe un crash-window si WhatsApp acepta
 
 Ver [`docs/STAGE-6-COMMITMENTS.md`](docs/STAGE-6-COMMITMENTS.md).
 
-## Gmail metadata-only — Stage 7A
+## Gmail — Stages 7A–7B
 
-Stage 7A usa credenciales OAuth Gmail dedicadas y está deshabilitado por defecto. El scope mínimo previsto es `https://www.googleapis.com/auth/gmail.metadata`.
+### Metadata-only — Stage 7A
+
+Stage 7A usa credenciales OAuth Gmail dedicadas y está deshabilitado por defecto. Si Stage 7B permanece apagado, el scope mínimo previsto es `https://www.googleapis.com/auth/gmail.metadata`.
 
 ```env
 GMAIL_READ_ENABLED=false
@@ -290,7 +299,23 @@ GMAIL_READ_MAX_REPLY_CHARS=3500
 
 `correos` y `correos recientes [N]` consultan `INBOX`; `correos no leídos [N]` agrega `UNREAD`. La lista no usa `q`; cada mensaje se consulta con `format=metadata` y únicamente headers `From`/`Subject` más metadata estructural. Los headers se tratan como input externo no confiable y se eliminan caracteres de control/formato antes de mostrarlos.
 
-Stage 7A no solicita body, snippet, attachments, MIME parts, `format=full/raw`, búsqueda Gmail libre ni historial. No persiste emails, no los indexa, no los manda a IA y no cambia leído/labels/archive/trash. Tampoco implementa send/reply/forward/drafts.
+Stage 7A no solicita body, snippet, attachments, MIME parts, `format=full/raw`, búsqueda Gmail libre ni historial. No persiste emails, no los indexa, no los manda a IA y no cambia leído/labels/archive/trash.
+
+### Body/thread explícito — Stage 7B
+
+Stage 7B tiene un segundo opt-in. Requiere `GMAIL_READ_ENABLED=true` y un refresh token Gmail dedicado con un scope body-capable read-only como `https://www.googleapis.com/auth/gmail.readonly`.
+
+```env
+GMAIL_CONTENT_READ_ENABLED=false
+GMAIL_CONTENT_MAX_BODY_CHARS=6000
+GMAIL_CONTENT_MAX_MESSAGE_BYTES=1048576
+GMAIL_CONTENT_MAX_THREAD_MESSAGES=5
+GMAIL_CONTENT_MAX_REPLY_CHARS=3500
+```
+
+`lee correo N` y `lee hilo N` seleccionan por posición sobre la vista actual Inbox; las variantes `no leído` usan Inbox+Unread. Antes del `format=full`, el provider hace un preflight `format=metadata` con `sizeEstimate`. La extracción MIME está limitada por tamaño individual y agregado, cantidad de parts y profundidad, valida base64url, prefiere `text/plain` y usa HTML sanitizado solo como fallback.
+
+Stage 7B no llama `users.messages.attachments.get`: las MIME parts con `attachmentId` se ignoran. Los hilos muestran solo los mensajes más recientes dentro del límite configurado. Bodies/headers/IDs siguen siendo efímeros: no SQLite, FTS, embeddings ni IA; tampoco mark-read, labels, archive, trash, drafts, reply, forward o send. Texto del email que parezca un comando se muestra como texto terminal y no se ejecuta.
 
 Ver [`docs/STAGE-7-GMAIL.md`](docs/STAGE-7-GMAIL.md).
 
@@ -385,15 +410,16 @@ curl http://127.0.0.1:8787/readyz
 - [`docs/QA-STAGE-6C-PENDING.md`](docs/QA-STAGE-6C-PENDING.md)
 - [`docs/QA-STAGE-6D-PENDING.md`](docs/QA-STAGE-6D-PENDING.md)
 - [`docs/QA-STAGE-7A-PENDING.md`](docs/QA-STAGE-7A-PENDING.md)
+- [`docs/QA-STAGE-7B-PENDING.md`](docs/QA-STAGE-7B-PENDING.md)
 
 ## Próximos bloques
 
 1. mantener acumulado el QA real de WhatsApp/RPi/Google/proveedores sin convertir tests automatizados en falsos PASS live;
 2. cerrar QA real de Stage 6A–6D con la línea WhatsApp QA, incluyendo restart/retry, límites temporales, dashboard y el crash-window de notificaciones;
-3. cerrar QA real de Gmail 7A con una cuenta/corpus QA y token `gmail.metadata` antes de considerar body, search o writes;
+3. cerrar QA real de Gmail 7A–7B con una cuenta/corpus QA y scopes mínimos (`gmail.metadata` cuando solo hay metadata; `gmail.readonly` si se habilita content read);
 4. cerrar QA real de documentos/OCR/lifecycle/semantic/Q&A con corpus QA no sensible antes de habilitar documentos personales sensibles;
 5. cerrar QA read-only real de Calendar 5A–5C con un Calendar QA y token de scopes mínimos;
-6. evaluar cualquier ampliación Gmail (body/search/write/send) como boundary separado, no como extensión implícita de 7A;
+6. evaluar cualquier ampliación Gmail (search, attachments, clasificación o writes) como boundary separado, no como extensión implícita de 7A/7B;
 7. mantener OpenClaw, Claude Code, Codex y otros agentes como adaptadores opcionales, nunca como dependencia del producto.
 
 ## Aviso
