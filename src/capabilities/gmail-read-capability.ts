@@ -158,7 +158,12 @@ export class GmailReadCapability implements Capability {
           unreadReturned: rows.filter((row) => row.unread).length,
         },
       });
-      return { handled: true, reply: this.render(rows, command.unreadOnly) };
+      return {
+        handled: true,
+        reply: this.render(rows, command.unreadOnly),
+        // From/Subject are Gmail-derived content too; keep them out of Baileys' local retry store.
+        replyPersistence: 'ephemeral',
+      };
     } catch (error) {
       this.audit.record({
         eventType: 'gmail.read.failed',
