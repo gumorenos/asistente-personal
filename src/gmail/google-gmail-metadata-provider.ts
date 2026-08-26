@@ -1,4 +1,5 @@
 import type { GoogleOAuthAccessTokenProvider } from '../calendar/google-oauth-token-provider.ts';
+import type { GmailSearchFilter, GmailSearchProvider } from './search-types.ts';
 import type { GmailListOptions, GmailMetadataMessage, GmailReadProvider } from './types.ts';
 
 export interface GoogleGmailMetadataProviderConfig {
@@ -73,7 +74,31 @@ function normalizeListIds(payload: unknown, maxResults: number): Array<{ id: str
   return output;
 }
 
-export class GoogleGmailMetadataProvider implements GmailReadProvider {
+function safePhrase(value: string): string {
+  const compacted = value.replace(/\s+/g, ' ').trim();
+  if (!compacted || compacted.length > 500 || /["\\\p{Cc}\p{Cf}]/u.test(compacted)) {
+    throw new Error('Invalid Gmail search phrase');
+  }
+  return compacted;
+}
+
+function buildSearchQuery(filter: GmailSearchFilter): string {
+  if (filter.kind === 'from') return `from:"${safePhrase(filter.value)}"`;
+  if (filter.kind === 'subject') return `subject:"${safePhrase(filter.value)}"`;
+  if (
+    !Number.isInteger(filter.startEpochSeconds)
+    || !Number.isInteger(filter.endExclusiveEpochSeconds)
+    || filter.startEpochSeconds < 0
+    || filter.endExclusiveEpochSeconds <= filter.startEpochSeconds
+  ) {
+    throw new Error('Invalid Gmail search date range');
+  }
+  // Gmail `after:` is strict. Subtract one second so the local-day start is inclusive.
+  const after = Math.max(0, filter.startEpochSeconds - 1);
+  return `after:${after} before:${filter.endExclusiveEpochSeconds}`;
+}
+
+export class GoogleGmailMetadataProvider implements GmailReadProvider, GmailSearchProvider {
   readonly name = 'google-gmail-metadata';
 
   private readonly config: GoogleGmailMetadataProviderConfig;
@@ -94,18 +119,27 @@ export class GoogleGmailMetadataProvider implements GmailReadProvider {
     if (!Number.isInteger(options.limit) || options.limit < 1 || options.limit > 10) {
       throw new Error('Invalid Gmail metadata limit');
     }
+    return this.listMetadata(options.limit, options.unreadOnly, undefined);
+  }
 
+  async searchInbox(filter: GmailSearchFilter, limit: number): Promise<GmailMetadataMessage[]> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 10) throw new Error('Invalid Gmail search limit');
+    return this.listMetadata(limit, false, buildSearchQuery(filter));
+  }
+
+  private async listMetadata(limit: number, unreadOnly: boolean, gmailQuery: string | undefined): Promise<GmailMetadataMessage[]> {
     const query = new URLSearchParams({
-      maxResults: String(options.limit),
+      maxResults: String(limit),
       includeSpamTrash: 'false',
       fields: 'messages(id,threadId)',
     });
     query.append('labelIds', 'INBOX');
-    if (options.unreadOnly) query.append('labelIds', 'UNREAD');
+    if (unreadOnly) query.append('labelIds', 'UNREAD');
+    if (gmailQuery !== undefined) query.set('q', gmailQuery);
 
     const listResponse = await this.authorizedFetch(`${this.baseUrl()}/users/me/messages?${query.toString()}`);
     if (!listResponse.ok) throw new Error(`Gmail metadata list failed with HTTP ${listResponse.status}`);
-    const ids = normalizeListIds(await listResponse.json(), options.limit);
+    const ids = normalizeListIds(await listResponse.json(), limit);
 
     const messages: GmailMetadataMessage[] = [];
     for (const item of ids) {
