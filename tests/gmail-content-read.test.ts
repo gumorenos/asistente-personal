@@ -167,7 +167,8 @@ test('provider falls back to bounded HTML text and strips scripts and Unicode fo
     },
   );
   const row = await provider.readMessage('m1', { maxBodyChars: 10, maxMessageBytes: 2_000 });
-  assert.equal(row.from, 'Ana');
+  // Stage 7A deliberately replaces control/format characters with a separator rather than joining tokens.
+  assert.equal(row.from, 'A na');
   assert.ok(!row.body.includes('steal'));
   assert.ok(!row.body.includes('secret'));
   assert.ok(row.body.startsWith('Hola mund'));
@@ -191,7 +192,31 @@ test('provider rejects oversized message at preflight without downloading full c
   assert.equal(calls, 1);
 });
 
-test('provider reads a bounded thread and never requests attachment content', async () => {
+test('provider rejects malformed base64url body data instead of permissively decoding it', async () => {
+  let call = 0;
+  const provider = new GoogleGmailMetadataProvider(
+    { timeoutMs: 20_000, apiBaseUrl: 'https://gmail.test/gmail/v1' },
+    tokenProvider(),
+    async () => {
+      call += 1;
+      if (call === 1) return new Response(JSON.stringify({ id: 'm1', threadId: 't1', sizeEstimate: 800 }));
+      return new Response(JSON.stringify({
+        id: 'm1', threadId: 't1', internalDate: '1787698800000', sizeEstimate: 800,
+        payload: {
+          mimeType: 'text/plain',
+          headers: [{ name: 'From', value: 'Ana' }, { name: 'Subject', value: 'Bad body' }],
+          body: { data: '%%%not-base64url%%%' },
+        },
+      }));
+    },
+  );
+  await assert.rejects(
+    () => provider.readMessage('m1', { maxBodyChars: 500, maxMessageBytes: 2_000 }),
+    /invalid base64url/,
+  );
+});
+
+test('provider reads the most recent bounded thread messages and never requests attachment content', async () => {
   const urls: string[] = [];
   const fetchImpl: typeof fetch = async (input) => {
     const url = String(input);
@@ -224,7 +249,7 @@ test('provider reads a bounded thread and never requests attachment content', as
   );
   const rows = await provider.readThread('t1', { maxBodyChars: 500, maxMessageBytes: 2_000, maxMessages: 2 });
   assert.equal(rows.length, 2);
-  assert.deepEqual(rows.map((row) => row.body), ['body-m1', 'body-m2']);
+  assert.deepEqual(rows.map((row) => row.body), ['body-m2', 'body-m3']);
   assert.ok(!urls.some((url) => url.includes('/attachments/')));
   assert.equal(new URL(urls[0]!).searchParams.get('format'), 'minimal');
 });
@@ -266,7 +291,7 @@ test('content commands are explicit, positional and disabled mode performs zero 
   } finally { db.close(); }
 });
 
-test('content output is terminal, bounded, creates no actions and audit stores no body/from/subject/id', async () => {
+test('content output preserves a bounded body prefix, stays terminal, creates no actions and audits no content', async () => {
   const db = new AppDatabase(':memory:');
   try {
     const audit = new AuditRepository(db);
@@ -287,7 +312,8 @@ test('content output is terminal, bounded, creates no actions and audit stores n
     const capability = new GmailReadCapability(provider, audit, config, 'America/Lima');
     const result = await capability.handle(message('lee correo 1'));
     assert.ok((result?.reply?.length ?? 0) <= 700);
-    assert.match(result?.reply ?? '', /QA_NO_DEBE_CREAR_NOTA|salida truncada/);
+    assert.match(result?.reply ?? '', /QA_NO_DEBE_CREAR_NOTA/);
+    assert.match(result?.reply ?? '', /salida truncada/);
     assert.equal(actions.listPending(new Date('2030-01-01T00:00:00Z').toISOString()).length, 0);
 
     const auditJson = JSON.stringify(audit.listRecent(10));
