@@ -174,6 +174,14 @@ export function runDoctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
   add(checks, 'feature.gmail_metadata_read', 'pass', gmailRead.enabled
     ? `enabled (${gmailRead.maxMessages} max; metadata/headers only; connectivity not tested)`
     : 'disabled');
+  add(
+    checks,
+    'feature.gmail_content_read',
+    'pass',
+    gmailRead.content?.enabled
+      ? `enabled (${gmailRead.content.maxBodyChars} body chars; ${gmailRead.content.maxThreadMessages} thread messages; connectivity not tested)`
+      : 'disabled',
+  );
   add(checks, 'feature.calendar_read', 'pass', calendarRead.enabled
     ? `enabled (${formatClock(calendarRead.dayStartMinutes)}-${formatClock(calendarRead.dayEndMinutes)}; connectivity not tested)`
     : 'disabled');
