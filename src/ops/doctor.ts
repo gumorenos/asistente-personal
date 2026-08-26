@@ -16,6 +16,7 @@ import {
   type CommitmentNotificationConfig,
 } from '../commitments/notification-config.ts';
 import { loadConfig, type AppConfig } from '../config.ts';
+import { loadGmailReadConfig, type GmailReadConfig } from '../gmail/read-config.ts';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
 
@@ -120,12 +121,14 @@ export function runDoctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
   let calendarSlots: CalendarSlotSuggestionConfig;
   let calendarExact: CalendarExactAvailabilityConfig;
   let commitmentNotifications: CommitmentNotificationConfig;
+  let gmailRead: GmailReadConfig;
   try {
     config = loadConfig(env);
     calendarRead = loadCalendarReadConfig(config, env);
     calendarSlots = loadCalendarSlotSuggestionConfig(config, calendarRead, env);
     calendarExact = loadCalendarExactAvailabilityConfig(calendarRead, env);
     commitmentNotifications = loadCommitmentNotificationConfig(config, env);
+    gmailRead = loadGmailReadConfig(env);
     add(checks, 'config', 'pass', 'configuration valid');
   } catch (error) {
     add(checks, 'config', 'fail', error instanceof Error ? error.message : String(error));
@@ -168,6 +171,9 @@ export function runDoctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
       ? 'enabled (allowlisted self destination; WhatsApp delivery not tested)'
       : 'disabled',
   );
+  add(checks, 'feature.gmail_metadata_read', 'pass', gmailRead.enabled
+    ? `enabled (${gmailRead.maxMessages} max; metadata/headers only; connectivity not tested)`
+    : 'disabled');
   add(checks, 'feature.calendar_read', 'pass', calendarRead.enabled
     ? `enabled (${formatClock(calendarRead.dayStartMinutes)}-${formatClock(calendarRead.dayEndMinutes)}; connectivity not tested)`
     : 'disabled');

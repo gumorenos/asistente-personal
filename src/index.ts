@@ -24,6 +24,7 @@ import { CommitmentCapability } from './capabilities/commitment-capability.ts';
 import { DocumentCapability } from './capabilities/document-capability.ts';
 import { DocumentLifecycleCapability } from './capabilities/document-lifecycle-capability.ts';
 import { DocumentQaCapability } from './capabilities/document-qa-capability.ts';
+import { GmailReadCapability } from './capabilities/gmail-read-capability.ts';
 import { LocalCapabilities } from './capabilities/local-capabilities.ts';
 import { MemorySearchCapability } from './capabilities/memory-search-capability.ts';
 import { ObserverAdminCapability } from './capabilities/observer-admin-capability.ts';
@@ -58,6 +59,8 @@ import { HybridPdfExtractor } from './documents/hybrid-pdf-extractor.ts';
 import { PopplerPdfExtractor } from './documents/poppler-pdf-extractor.ts';
 import { TesseractPdfOcrExtractor } from './documents/tesseract-pdf-ocr-extractor.ts';
 import type { DocumentExtractor } from './documents/types.ts';
+import { GoogleGmailMetadataProvider } from './gmail/google-gmail-metadata-provider.ts';
+import { loadGmailReadConfig } from './gmail/read-config.ts';
 import { ObserverService } from './observer/observer-service.ts';
 import { SqliteObservationSink } from './observer/sqlite-observation-sink.ts';
 import { BriefingScheduler } from './scheduler/briefing-scheduler.ts';
@@ -82,6 +85,7 @@ const calendarReadConfig = loadCalendarReadConfig(config);
 const calendarSlotSuggestionConfig = loadCalendarSlotSuggestionConfig(config, calendarReadConfig);
 const calendarExactAvailabilityConfig = loadCalendarExactAvailabilityConfig(calendarReadConfig);
 const commitmentNotificationConfig = loadCommitmentNotificationConfig(config);
+const gmailReadConfig = loadGmailReadConfig();
 const database = new AppDatabase(config.dbPath);
 const messages = new MessageRepository(database);
 const notes = new NoteRepository(database);
@@ -208,6 +212,17 @@ const calendarSlotSuggestionService = calendarSlotSuggestionConfig.enabled && ca
   ? new CalendarSlotSuggestionService(calendarReadService, calendarSlotSuggestionConfig)
   : undefined;
 
+let gmailReadProvider: GoogleGmailMetadataProvider | undefined;
+if (gmailReadConfig.enabled) {
+  const gmailTokenProvider = new GoogleOAuthAccessTokenProvider({
+    clientId: gmailReadConfig.clientId!,
+    clientSecret: gmailReadConfig.clientSecret!,
+    refreshToken: gmailReadConfig.refreshToken!,
+    timeoutMs: gmailReadConfig.timeoutMs,
+  });
+  gmailReadProvider = new GoogleGmailMetadataProvider({ timeoutMs: gmailReadConfig.timeoutMs }, gmailTokenProvider);
+}
+
 let briefingScheduler: BriefingScheduler | undefined;
 if (config.briefing.enabled) {
   briefingScheduler = new BriefingScheduler(
@@ -272,6 +287,8 @@ const capabilities: Capability[] = [
   new ObserverSearchCapability(observedChats, observationSink, audit, config.timeZone),
   new ObserverReadCapability(observedChats, observationSink, audit, config.timeZone),
   new MemorySearchCapability(memorySearch, audit, config.timeZone),
+  // Gmail metadata reads are explicit-only, body-free and cannot mutate mailbox state.
+  new GmailReadCapability(gmailReadProvider, audit, gmailReadConfig, config.timeZone),
   // Calendar reads/checks/suggestions are explicit-only and cannot execute actions.
   new CalendarExactAvailabilityCapability(
     calendarReadService,
@@ -341,6 +358,7 @@ try {
     embeddingsProvider: config.semantic.embeddings.enabled ? config.semantic.embeddings.provider : 'disabled',
     embeddingsDimensions: config.semantic.embeddings.enabled ? config.semantic.embeddings.dimensions : undefined,
     documentQaEnabled: documentQaConfig.enabled,
+    gmailMetadataReadEnabled: gmailReadConfig.enabled,
     calendarReadsEnabled: calendarReadConfig.enabled,
     calendarReadWindow: calendarReadConfig.enabled
       ? `${String(Math.floor(calendarReadConfig.dayStartMinutes / 60)).padStart(2, '0')}:${String(calendarReadConfig.dayStartMinutes % 60).padStart(2, '0')}-${String(Math.floor(calendarReadConfig.dayEndMinutes / 60)).padStart(2, '0')}:${String(calendarReadConfig.dayEndMinutes % 60).padStart(2, '0')}`
