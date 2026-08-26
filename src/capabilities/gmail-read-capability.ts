@@ -14,7 +14,10 @@ function foldText(value: string): string {
 }
 
 function compact(value: string, maxChars: number): string {
-  const normalized = value.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const normalized = value
+    .replace(/[\p{Cc}\p{Cf}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (normalized.length <= maxChars) return normalized;
   return `${normalized.slice(0, maxChars - 1)}…`;
 }
