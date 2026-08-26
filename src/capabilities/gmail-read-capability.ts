@@ -202,7 +202,12 @@ export class GmailReadCapability implements Capability {
           omittedParts: body.omittedParts,
         },
       });
-      return { handled: true, reply: this.renderBody(selection, selected, body.text, body.omittedParts) };
+      return {
+        handled: true,
+        reply: this.renderBody(selection, selected, body.text, body.omittedParts),
+        // Email bodies must not enter Baileys' local getMessage/retry store.
+        replyPersistence: 'ephemeral',
+      };
     } catch (error) {
       this.audit.record({
         eventType: 'gmail.body.read.failed',

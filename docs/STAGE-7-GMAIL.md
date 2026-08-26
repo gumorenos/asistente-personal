@@ -171,12 +171,16 @@ Stage 7B **no llama** `users.messages.attachments.get`. Cualquier MIME part con 
 
 El body:
 
-- existe solo durante la request/respuesta;
-- no se persiste en SQLite;
+- existe solo durante la request y composición de la respuesta;
+- no se persiste en SQLite por la capa Gmail;
+- la respuesta que contiene el body se marca `ephemeral`, por lo que Baileys no la guarda en su `whatsapp_message_store` local de retry/getMessage;
+- el message id saliente sí puede conservarse sin contenido para prevenir loops/duplicados;
 - no se indexa en FTS/embeddings;
 - no se envía a IA;
 - no se añade al historial de Gmail local;
 - no se guarda en audit.
+
+`ephemeral` controla únicamente persistencia local del transport. No pretende cambiar la retención propia de WhatsApp/Gmail ni la del dispositivo del usuario.
 
 Audit conserva únicamente datos operativos no sensibles como número de selección, formato usado, truncamiento y cantidad de partes omitidas. No conserva Gmail ids/thread ids, remitente, asunto ni body.
 

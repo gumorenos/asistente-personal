@@ -7,7 +7,7 @@ Stage 7B tiene cobertura automatizada, pero **ningún punto live/OAuth de este d
 - Stage 7A continúa usando su token dedicado con `gmail.metadata`.
 - Stage 7B usa credenciales/token dedicados con `gmail.readonly` y `GMAIL_BODY_READ_ENABLED=false` por defecto.
 - Stage 7B solo abre un correo previamente seleccionado por número desde la última lista efímera.
-- No hay persistencia de Gmail ids/thread ids/body.
+- No hay persistencia local intencional de Gmail ids/thread ids/body; las respuestas con body omiten el retry store local de Baileys.
 - No hay IA, attachments ni mutaciones.
 
 ## OAuth / Gmail API real — PENDING
@@ -44,7 +44,8 @@ Stage 7B tiene cobertura automatizada, pero **ningún punto live/OAuth de este d
 - [ ] Comparar labels/UNREAD antes y después de `correo #N`: ninguna modificación.
 - [ ] Confirmar que no se crean `action_requests`.
 - [ ] Confirmar que no hay requests de send/reply/draft/modify/archive/trash/delete.
-- [ ] Revisar SQLite después de lectura: body, Gmail id/thread id, From y Subject no aparecen en tablas nuevas ni existentes por efecto de Stage 7B.
+- [ ] Revisar SQLite después de lectura: body y Gmail id/thread id no aparecen por efecto de Stage 7B.
+- [ ] Revisar `whatsapp_message_store`: la respuesta saliente que contiene el body no queda almacenada; solo permanece el marker/id outbound sin contenido necesario para loop protection.
 - [ ] Revisar audit real: solo selection/format/truncated/omittedParts/errorType; sin body/remitente/asunto/Gmail ids.
 - [ ] Confirmar que no se invoca proveedor AI/transcription/embeddings/document Q&A.
 - [ ] Confirmar que Observer no puede disparar `correo #N` porque su ruta sigue separada del AssistantCore.
@@ -57,6 +58,7 @@ Cuando exista la línea QA dedicada y el core esté corriendo con sesión autori
 - [ ] Verificar respuesta acotada en WhatsApp con plain, HTML y adjuntos.
 - [ ] Verificar que terceros/grupos no obtienen respuesta ni acceso Gmail.
 - [ ] Restart de Baileys/app: auth WhatsApp persiste, selección Gmail no persiste.
+- [ ] Forzar/reproducir un retry de una respuesta ephemeral y documentar el comportamiento aceptado: Stage 7B prioriza no persistir el body localmente sobre disponer de payload para reenvío vía `getMessage`.
 
 ## Criterio de cierre live
 
