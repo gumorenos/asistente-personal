@@ -103,7 +103,7 @@ function normalizeMessage(value: unknown): GmailMetadataMessage {
 
   return {
     id,
-    threadId,
+ threadId,
     internalDate: normalizeDate(value.internalDate),
     from: compactHeader(headerValue(value.payload, 'From'), '(sin remitente)', 320),
     subject: compactHeader(headerValue(value.payload, 'Subject'), '(sin asunto)', 300),
@@ -129,7 +129,12 @@ function normalizeListIds(payload: unknown, maxResults: number): Array<{ id: str
   return output;
 }
 
-function decodePartData(data: unknown, maxBytes: number): string | undefined {
+interface DecodedPart {
+  text: string;
+  byteLength: number;
+}
+
+function decodePartData(data: unknown, maxBytes: number): DecodedPart | undefined {
   if (typeof data !== 'string' || !data) return undefined;
   if (data.length > Math.ceil(maxBytes * 1.5) + 16) throw new Error('Gmail message body exceeds configured limit');
   if (!/^[A-Za-z0-9_-]+={0,2}$/.test(data)) throw new Error('Gmail message body contains invalid base64url data');
@@ -139,7 +144,7 @@ function decodePartData(data: unknown, maxBytes: number): string | undefined {
   const padding = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4));
   const buffer = Buffer.from(`${normalized}${padding}`, 'base64');
   if (buffer.byteLength > maxBytes) throw new Error('Gmail message body exceeds configured limit');
-  return buffer.toString('utf8');
+  return { text: buffer.toString('utf8'), byteLength: buffer.byteLength };
 }
 
 interface BodyCandidate {
@@ -150,6 +155,7 @@ interface BodyCandidate {
 function collectBodyCandidates(payload: unknown, maxBytes: number): BodyCandidate[] {
   const candidates: BodyCandidate[] = [];
   let visited = 0;
+  let totalDecodedBytes = 0;
 
   const visit = (part: unknown, depth: number): void => {
     if (!isRecord(part)) return;
@@ -162,8 +168,11 @@ function collectBodyCandidates(payload: unknown, maxBytes: number): BodyCandidat
       ? body.attachmentId.trim()
       : undefined;
     const decoded = attachmentId ? undefined : decodePartData(body?.data, maxBytes);
-    if (decoded && mimeType === 'text/plain') candidates.push({ kind: 'plain', text: decoded });
-    if (decoded && mimeType === 'text/html') candidates.push({ kind: 'html', text: decoded });
+    if (decoded && (mimeType === 'text/plain' || mimeType === 'text/html')) {
+      totalDecodedBytes += decoded.byteLength;
+      if (totalDecodedBytes > maxBytes) throw new Error('Gmail message body exceeds aggregate configured limit');
+      candidates.push({ kind: mimeType === 'text/plain' ? 'plain' : 'html', text: decoded.text });
+    }
 
     if (Array.isArray(part.parts)) {
       for (const child of part.parts) visit(child, depth + 1);
