@@ -14,7 +14,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function compactHeader(value: unknown, fallback: string, maxChars: number): string {
   if (typeof value !== 'string') return fallback;
-  const compacted = value.replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const compacted = value
+    .replace(/[\p{Cc}\p{Cf}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!compacted) return fallback;
   return compacted.length <= maxChars ? compacted : `${compacted.slice(0, maxChars - 1)}…`;
 }
@@ -57,11 +60,13 @@ function normalizeListIds(payload: unknown, maxResults: number): Array<{ id: str
   const messages = payload.messages === undefined ? [] : payload.messages;
   if (!Array.isArray(messages)) throw new Error('Gmail list returned an invalid response');
   const output: Array<{ id: string; threadId: string }> = [];
+  const seen = new Set<string>();
   for (const value of messages) {
     if (!isRecord(value)) continue;
     const id = typeof value.id === 'string' ? value.id.trim() : '';
     const threadId = typeof value.threadId === 'string' ? value.threadId.trim() : '';
-    if (!id || id.length > 1024 || !threadId || threadId.length > 1024) continue;
+    if (!id || id.length > 1024 || !threadId || threadId.length > 1024 || seen.has(id)) continue;
+    seen.add(id);
     output.push({ id, threadId });
     if (output.length >= maxResults) break;
   }
@@ -114,7 +119,11 @@ export class GoogleGmailMetadataProvider implements GmailReadProvider {
         `${this.baseUrl()}/users/me/messages/${encodeURIComponent(item.id)}?${detailQuery.toString()}`,
       );
       if (!response.ok) throw new Error(`Gmail metadata get failed with HTTP ${response.status}`);
-      messages.push(normalizeMessage(await response.json()));
+      const normalized = normalizeMessage(await response.json());
+      if (normalized.id !== item.id || normalized.threadId !== item.threadId) {
+        throw new Error('Gmail metadata returned a mismatched message');
+      }
+      messages.push(normalized);
     }
     return messages;
   }
