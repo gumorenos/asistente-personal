@@ -23,16 +23,12 @@ function compact(value: string, maxChars: number): string {
 }
 
 function boundedLines(lines: string[], maxChars: number): string {
-  const output: string[] = [];
-  for (const line of lines) {
-    if ([...output, line].join('\n').length > maxChars) {
-      const marker = '… salida truncada';
-      if ([...output, marker].join('\n').length <= maxChars) output.push(marker);
-      break;
-    }
-    output.push(line);
-  }
-  return output.join('\n').slice(0, maxChars);
+  const joined = lines.join('\n');
+  if (joined.length <= maxChars) return joined;
+  const marker = '… salida truncada';
+  if (maxChars <= marker.length) return marker.slice(0, maxChars);
+  const contentLimit = maxChars - marker.length - 1;
+  return `${joined.slice(0, contentLimit).trimEnd()}\n${marker}`.slice(0, maxChars);
 }
 
 interface ParsedListCommand {
