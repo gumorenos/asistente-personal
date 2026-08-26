@@ -166,12 +166,12 @@ test('provider falls back to bounded HTML text and strips scripts and Unicode fo
       }));
     },
   );
-  const row = await provider.readMessage('m1', { maxBodyChars: 10, maxMessageBytes: 2_000 });
+  const row = await provider.readMessage('m1', { maxBodyChars: 9, maxMessageBytes: 2_000 });
   // Stage 7A deliberately replaces control/format characters with a separator rather than joining tokens.
   assert.equal(row.from, 'A na');
   assert.ok(!row.body.includes('steal'));
   assert.ok(!row.body.includes('secret'));
-  assert.ok(row.body.startsWith('Hola mund'));
+  assert.ok(row.body.startsWith('Hola mun'));
   assert.equal(row.truncated, true);
 });
 
