@@ -1,3 +1,4 @@
+import { GoogleOAuthAccessTokenProvider } from '../calendar/google-oauth-token-provider.ts';
 import {
   addCalendarDays,
   isValidCalendarDate,
@@ -5,7 +6,8 @@ import {
 } from './time-utils.ts';
 import type { IncomingMessage } from '../core/types.ts';
 import type { AuditRepository } from '../database/audit-repository.ts';
-import type { GmailSearchConfig } from '../gmail/search-config.ts';
+import { GoogleGmailMetadataProvider } from '../gmail/google-gmail-metadata-provider.ts';
+import { loadGmailSearchConfig, type GmailSearchConfig } from '../gmail/search-config.ts';
 import type { GmailSearchFilter, GmailSearchProvider } from '../gmail/search-types.ts';
 import type { GmailMetadataMessage } from '../gmail/types.ts';
 import type { Capability, CapabilityResult } from './types.ts';
@@ -112,6 +114,23 @@ export class GmailSearchCapability implements Capability {
     private readonly config: GmailSearchConfig,
     private readonly timeZone: string,
   ) {}
+
+  static fromEnvironment(
+    audit: AuditRepository,
+    timeZone: string,
+    env: NodeJS.ProcessEnv = process.env,
+  ): GmailSearchCapability {
+    const config = loadGmailSearchConfig(env);
+    if (!config.enabled) return new GmailSearchCapability(undefined, audit, config, timeZone);
+    const tokenProvider = new GoogleOAuthAccessTokenProvider({
+      clientId: config.clientId!,
+      clientSecret: config.clientSecret!,
+      refreshToken: config.refreshToken!,
+      timeoutMs: config.timeoutMs,
+    });
+    const provider = new GoogleGmailMetadataProvider({ timeoutMs: config.timeoutMs }, tokenProvider);
+    return new GmailSearchCapability(provider, audit, config, timeZone);
+  }
 
   async handle(message: IncomingMessage): Promise<CapabilityResult | undefined> {
     const command = parseCommand(message.text);

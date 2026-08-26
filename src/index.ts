@@ -25,6 +25,7 @@ import { DocumentCapability } from './capabilities/document-capability.ts';
 import { DocumentLifecycleCapability } from './capabilities/document-lifecycle-capability.ts';
 import { DocumentQaCapability } from './capabilities/document-qa-capability.ts';
 import { GmailReadCapability } from './capabilities/gmail-read-capability.ts';
+import { GmailSearchCapability } from './capabilities/gmail-search-capability.ts';
 import { LocalCapabilities } from './capabilities/local-capabilities.ts';
 import { MemorySearchCapability } from './capabilities/memory-search-capability.ts';
 import { ObserverAdminCapability } from './capabilities/observer-admin-capability.ts';
@@ -286,6 +287,8 @@ const capabilities: Capability[] = [
   new ObserverAdminCapability(observedChats, audit, config.observer.enabled),
   new ObserverSearchCapability(observedChats, observationSink, audit, config.timeZone),
   new ObserverReadCapability(observedChats, observationSink, audit, config.timeZone),
+  // Gmail search owns every explicit `busca correos ...` form before generic local FTS.
+  GmailSearchCapability.fromEnvironment(audit, config.timeZone),
   new MemorySearchCapability(memorySearch, audit, config.timeZone),
   // Gmail metadata reads are explicit-only, body-free and cannot mutate mailbox state.
   new GmailReadCapability(gmailReadProvider, audit, gmailReadConfig, config.timeZone),
