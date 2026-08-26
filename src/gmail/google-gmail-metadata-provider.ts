@@ -132,7 +132,10 @@ function normalizeListIds(payload: unknown, maxResults: number): Array<{ id: str
 function decodePartData(data: unknown, maxBytes: number): string | undefined {
   if (typeof data !== 'string' || !data) return undefined;
   if (data.length > Math.ceil(maxBytes * 1.5) + 16) throw new Error('Gmail message body exceeds configured limit');
-  const normalized = data.replace(/-/g, '+').replace(/_/g, '/');
+  if (!/^[A-Za-z0-9_-]+={0,2}$/.test(data)) throw new Error('Gmail message body contains invalid base64url data');
+  const unpadded = data.replace(/=+$/, '');
+  if (unpadded.length % 4 === 1) throw new Error('Gmail message body contains invalid base64url data');
+  const normalized = unpadded.replace(/-/g, '+').replace(/_/g, '/');
   const padding = normalized.length % 4 === 0 ? '' : '='.repeat(4 - (normalized.length % 4));
   const buffer = Buffer.from(`${normalized}${padding}`, 'base64');
   if (buffer.byteLength > maxBytes) throw new Error('Gmail message body exceeds configured limit');
@@ -309,10 +312,12 @@ export class GoogleGmailMetadataProvider implements GmailReadProvider {
     if (!isRecord(payload) || normalizeId(payload.id, 'thread id') !== safeThreadId || !Array.isArray(payload.messages)) {
       throw new Error('Gmail thread returned an invalid response');
     }
+    if (payload.messages.length > 2_000) throw new Error('Gmail thread exceeds configured structural safety bounds');
 
-    const ids: string[] = [];
+    const idsNewestFirst: string[] = [];
     const seen = new Set<string>();
-    for (const item of payload.messages) {
+    for (let index = payload.messages.length - 1; index >= 0 && idsNewestFirst.length < options.maxMessages; index -= 1) {
+      const item = payload.messages[index];
       if (!isRecord(item)) continue;
       const id = typeof item.id === 'string' ? item.id.trim() : '';
       const itemThreadId = typeof item.threadId === 'string' ? item.threadId.trim() : '';
@@ -321,9 +326,9 @@ export class GoogleGmailMetadataProvider implements GmailReadProvider {
         throw new Error('Gmail thread contains a message above the configured size limit');
       }
       seen.add(id);
-      ids.push(id);
-      if (ids.length >= options.maxMessages) break;
+      idsNewestFirst.push(id);
     }
+    const ids = idsNewestFirst.reverse();
 
     const messages: GmailContentMessage[] = [];
     for (const id of ids) {
