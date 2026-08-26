@@ -103,7 +103,7 @@ function normalizeMessage(value: unknown): GmailMetadataMessage {
 
   return {
     id,
- threadId,
+    threadId,
     internalDate: normalizeDate(value.internalDate),
     from: compactHeader(headerValue(value.payload, 'From'), '(sin remitente)', 320),
     subject: compactHeader(headerValue(value.payload, 'Subject'), '(sin asunto)', 300),
@@ -163,12 +163,13 @@ function collectBodyCandidates(payload: unknown, maxBytes: number): BodyCandidat
     if (visited > 100 || depth > 12) throw new Error('Gmail MIME structure exceeds configured safety bounds');
 
     const mimeType = typeof part.mimeType === 'string' ? part.mimeType.toLowerCase() : '';
+    const isTextCandidate = mimeType === 'text/plain' || mimeType === 'text/html';
     const body = isRecord(part.body) ? part.body : undefined;
     const attachmentId = body && typeof body.attachmentId === 'string' && body.attachmentId.trim()
       ? body.attachmentId.trim()
       : undefined;
-    const decoded = attachmentId ? undefined : decodePartData(body?.data, maxBytes);
-    if (decoded && (mimeType === 'text/plain' || mimeType === 'text/html')) {
+    const decoded = isTextCandidate && !attachmentId ? decodePartData(body?.data, maxBytes) : undefined;
+    if (decoded) {
       totalDecodedBytes += decoded.byteLength;
       if (totalDecodedBytes > maxBytes) throw new Error('Gmail message body exceeds aggregate configured limit');
       candidates.push({ kind: mimeType === 'text/plain' ? 'plain' : 'html', text: decoded.text });
