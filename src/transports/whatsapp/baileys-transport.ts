@@ -10,7 +10,7 @@ import type { IncomingMessage, SendTextResult } from '../../core/types.ts';
 import type { AppDatabase } from '../../database/db.ts';
 import type { MessageRepository } from '../../database/message-repository.ts';
 import { WhatsAppMessageStore } from '../../database/whatsapp-message-store.ts';
-import type { IncomingMessageHandler, MessageTransport } from '../types.ts';
+import type { IncomingMessageHandler, MessageTransport, SendTextOptions } from '../types.ts';
 import { routeNormalizedWhatsAppMessage } from './inbound-routing.ts';
 import { normalizeWhatsAppMessage } from './normalize-message.ts';
 import { useSqliteAuthState } from './sqlite-auth-state.ts';
@@ -102,14 +102,14 @@ export class BaileysWhatsAppTransport implements MessageTransport {
     this.socket = undefined;
   }
 
-  async sendText(destination: string, text: string): Promise<SendTextResult> {
+  async sendText(destination: string, text: string, options: SendTextOptions = {}): Promise<SendTextResult> {
     if (!this.selfJids.has(destination)) {
       throw new Error(`Refusing to send outside configured self-chat allowlist: ${destination}`);
     }
     if (!this.socket || this.state !== 'open') throw new Error('WhatsApp transport is not connected');
 
     const sent = await this.socket.sendMessage(destination, { text });
-    if (sent) this.retryMessages.save(sent);
+    if (sent && options.persistence !== 'ephemeral') this.retryMessages.save(sent);
     const messageId = sent?.key.id ?? undefined;
     if (messageId) this.messages.markAssistantOutbound(messageId, destination);
     return { messageId };

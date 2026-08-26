@@ -40,7 +40,9 @@ export class AssistantCore {
     route ??= routeMessage(message);
     if (!route.handled || !route.reply) return;
 
-    const result = await this.transport.sendText(message.chatId, route.reply);
+    const result = await this.transport.sendText(message.chatId, route.reply, {
+      persistence: route.replyPersistence ?? 'default',
+    });
     if (result.messageId) {
       this.messages.markAssistantOutbound(result.messageId, message.chatId);
     } else {
