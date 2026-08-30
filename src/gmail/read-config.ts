@@ -1,4 +1,5 @@
 import { loadGmailBodyReadConfig } from './body-read-config.ts';
+import { loadGmailSearchConfig } from './search-config.ts';
 
 export interface GmailReadConfig {
   enabled: boolean;
@@ -40,12 +41,13 @@ export function loadGmailReadConfig(env: NodeJS.ProcessEnv = process.env): Gmail
   if (enabled && !clientSecret) throw new Error('GMAIL_CLIENT_SECRET is required when GMAIL_READ_ENABLED=true');
   if (enabled && !refreshToken) throw new Error('GMAIL_REFRESH_TOKEN is required when GMAIL_READ_ENABLED=true');
 
-  // Stage 7B is a separate privacy boundary. Validate it during the same local
-  // configuration pass so `doctor` fails closed without contacting Gmail.
+  // Stages 7B/7C are separate privacy boundaries. Validate them during the same
+  // local configuration pass so `doctor` fails closed without contacting Gmail.
   const bodyConfig = loadGmailBodyReadConfig(env, enabled);
   if (bodyConfig.enabled && refreshToken && bodyConfig.refreshToken === refreshToken) {
     throw new Error('GMAIL_BODY_REFRESH_TOKEN must differ from GMAIL_REFRESH_TOKEN when GMAIL_BODY_READ_ENABLED=true');
   }
+  loadGmailSearchConfig(env);
 
   return {
     enabled,
