@@ -107,13 +107,22 @@ function boundedLines(lines: string[], maxChars: number): string {
 
 export class GmailSearchCapability implements Capability {
   readonly name = 'gmail-search';
+  private readonly provider: GmailSearchProvider | undefined;
+  private readonly audit: AuditRepository;
+  private readonly config: GmailSearchConfig;
+  private readonly timeZone: string;
 
   constructor(
-    private readonly provider: GmailSearchProvider | undefined,
-    private readonly audit: AuditRepository,
-    private readonly config: GmailSearchConfig,
-    private readonly timeZone: string,
-  ) {}
+    provider: GmailSearchProvider | undefined,
+    audit: AuditRepository,
+    config: GmailSearchConfig,
+    timeZone: string,
+  ) {
+    this.provider = provider;
+    this.audit = audit;
+    this.config = config;
+    this.timeZone = timeZone;
+  }
 
   static fromEnvironment(
     audit: AuditRepository,
