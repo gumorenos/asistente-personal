@@ -2,6 +2,20 @@
 
 Los tests/CI automatizados no convierten ninguna prueba OAuth/Gmail/WhatsApp real en PASS.
 
+## Gate automatizado — PASS
+
+HEAD `0d8e61795bd458ff375c78d2f3c38fb653f02bcb`, CI #647:
+
+- [x] TypeScript `tsc --noEmit` PASS en Node 22.18.0.
+- [x] 326/326 tests PASS.
+- [x] `npm audit --omit=dev --audit-level=high` PASS — 0 vulnerabilidades.
+- [x] Docker linux/amd64 build PASS.
+- [x] linux/amd64 PDF/OCR smoke PASS.
+- [x] Docker linux/arm64 build PASS.
+- [x] linux/arm64 PDF/OCR smoke PASS.
+
+El primer CI de 7C (#645) falló únicamente por parameter properties incompatibles con `erasableSyntaxOnly`; se corrigió sin cambiar la frontera funcional Gmail.
+
 ## OAuth / scope — PENDING
 
 - [ ] Crear/usar cuenta Gmail de QA con mensajes controlados y no sensibles.
@@ -45,4 +59,4 @@ Los tests/CI automatizados no convierten ninguna prueba OAuth/Gmail/WhatsApp rea
 
 ## Criterio de cierre live
 
-Stage 7C puede cerrarse live solo con evidencia reproducible de los checks aplicables. Hasta entonces: **código/CI automatizado sujeto a gate + QA OAuth/Gmail/WhatsApp real pendiente**.
+Stage 7C puede cerrarse live solo con evidencia reproducible de los checks aplicables. Hasta entonces: **código/CI automatizado PASS + QA OAuth/Gmail/WhatsApp real pendiente**.
