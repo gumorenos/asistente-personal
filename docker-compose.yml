@@ -4,8 +4,17 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    # Keep the runtime non-root while matching the numeric owner of ./data on Linux.
+    # Set these in .env to the output of `id -u` / `id -g` for the deployment account.
+    user: "${ASSISTANT_UID:?set ASSISTANT_UID to the non-root deployment uid}:${ASSISTANT_GID:?set ASSISTANT_GID to the non-root deployment gid}"
     volumes:
-      - ./data:/app/data
+      - type: bind
+        source: ./data
+        target: /app/data
+        bind:
+          # Fail closed if the expected host directory is missing instead of letting
+          # Docker create a root-owned directory that the non-root app cannot write.
+          create_host_path: false
     ports:
       - "127.0.0.1:8787:8787"
     healthcheck:
