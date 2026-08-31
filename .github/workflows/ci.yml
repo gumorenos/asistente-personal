@@ -22,6 +22,10 @@ jobs:
       - run: npm run check
       - name: Runtime dependency audit
         run: npm audit --omit=dev --audit-level=high
+      - name: Validate Docker Compose non-root identity
+        run: |
+          cp .env.example .env
+          ASSISTANT_UID="$(id -u)" ASSISTANT_GID="$(id -g)" docker compose config >/dev/null
 
   docker:
     needs: test
@@ -49,3 +53,12 @@ jobs:
           docker run --rm --platform ${{ matrix.platform }} assistant-ci:stage4b sh -lc
           'pdfinfo -v && pdftotext -v && pdftoppm -v && tesseract --version &&
           tesseract --list-langs | grep -qx eng && tesseract --list-langs | grep -qx spa'
+      - name: Smoke writable bind-mounted data as host identity
+        run: |
+          uid="$(id -u)"
+          gid="$(id -g)"
+          docker run --rm --platform ${{ matrix.platform }} \
+            --user "${uid}:${gid}" \
+            -v "$PWD/data:/app/data" \
+            assistant-ci:stage4b \
+            sh -lc 'touch /app/data/.bind-write-smoke && rm /app/data/.bind-write-smoke'
