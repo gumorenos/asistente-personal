@@ -1,0 +1,26 @@
+name: Lock Refresh Artifact
+
+on:
+  push:
+    branches: ["feat/stage-7d-gmail-analysis"]
+
+permissions:
+  contents: read
+
+jobs:
+  refresh-lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.18.0
+      - name: Refresh package lock only
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Verify clean install metadata
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - uses: actions/upload-artifact@v4
+        with:
+          name: refreshed-package-lock
+          path: package-lock.json
+          if-no-files-found: error
