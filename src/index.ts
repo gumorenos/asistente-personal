@@ -60,6 +60,8 @@ import { HybridPdfExtractor } from './documents/hybrid-pdf-extractor.ts';
 import { PopplerPdfExtractor } from './documents/poppler-pdf-extractor.ts';
 import { TesseractPdfOcrExtractor } from './documents/tesseract-pdf-ocr-extractor.ts';
 import type { DocumentExtractor } from './documents/types.ts';
+import { loadGmailAnalysisConfig } from './gmail/analysis-config.ts';
+import { GmailAnalysisService } from './gmail/analysis-service.ts';
 import { GoogleGmailMetadataProvider } from './gmail/google-gmail-metadata-provider.ts';
 import { loadGmailReadConfig } from './gmail/read-config.ts';
 import { ObserverService } from './observer/observer-service.ts';
@@ -87,6 +89,7 @@ const calendarSlotSuggestionConfig = loadCalendarSlotSuggestionConfig(config, ca
 const calendarExactAvailabilityConfig = loadCalendarExactAvailabilityConfig(calendarReadConfig);
 const commitmentNotificationConfig = loadCommitmentNotificationConfig(config);
 const gmailReadConfig = loadGmailReadConfig();
+const gmailAnalysisConfig = loadGmailAnalysisConfig(process.env, gmailReadConfig.enabled, config.ai.enabled);
 const database = new AppDatabase(config.dbPath);
 const messages = new MessageRepository(database);
 const notes = new NoteRepository(database);
@@ -128,6 +131,10 @@ if (config.ai.enabled) {
     timeoutMs: config.ai.timeoutMs, maxOutputTokens: config.ai.maxOutputTokens,
   });
 }
+
+const gmailAnalysisService = gmailAnalysisConfig.enabled && aiProvider
+  ? new GmailAnalysisService(aiProvider, gmailAnalysisConfig)
+  : undefined;
 
 let transcriptionProvider: TranscriptionProvider | undefined;
 if (config.transcription.enabled) {
@@ -290,8 +297,11 @@ const capabilities: Capability[] = [
   // Gmail search owns every explicit `busca correos ...` form before generic local FTS.
   GmailSearchCapability.fromEnvironment(audit, config.timeZone),
   new MemorySearchCapability(memorySearch, audit, config.timeZone),
-  // Gmail metadata reads are explicit-only, body-free and cannot mutate mailbox state.
-  new GmailReadCapability(gmailReadProvider, audit, gmailReadConfig, config.timeZone),
+  // Gmail 7A-7D remain explicit-only; 7D analysis is a separate opt-in and never executes actions.
+  new GmailReadCapability(gmailReadProvider, audit, gmailReadConfig, config.timeZone, {
+    analysisConfig: gmailAnalysisConfig,
+    analysisService: gmailAnalysisService,
+  }),
   // Calendar reads/checks/suggestions are explicit-only and cannot execute actions.
   new CalendarExactAvailabilityCapability(
     calendarReadService,
@@ -362,6 +372,7 @@ try {
     embeddingsDimensions: config.semantic.embeddings.enabled ? config.semantic.embeddings.dimensions : undefined,
     documentQaEnabled: documentQaConfig.enabled,
     gmailMetadataReadEnabled: gmailReadConfig.enabled,
+    gmailAnalysisEnabled: gmailAnalysisConfig.enabled,
     calendarReadsEnabled: calendarReadConfig.enabled,
     calendarReadWindow: calendarReadConfig.enabled
       ? `${String(Math.floor(calendarReadConfig.dayStartMinutes / 60)).padStart(2, '0')}:${String(calendarReadConfig.dayStartMinutes % 60).padStart(2, '0')}-${String(Math.floor(calendarReadConfig.dayEndMinutes / 60)).padStart(2, '0')}:${String(calendarReadConfig.dayEndMinutes % 60).padStart(2, '0')}`
