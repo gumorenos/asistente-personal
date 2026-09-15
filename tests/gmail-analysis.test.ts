@@ -161,12 +161,14 @@ test('priority service exports metadata only, preserves source numbers and never
   ]);
 
   const input = ai.calls[0]?.userText ?? '';
-  const parsed = JSON.parse(input) as { emails: Array<{ number: number; from: string; subject: string }> };
-  assert.deepEqual(parsed.emails.map((item) => item.number), [1, 2]);
-  assert.deepEqual(parsed.emails.map((item) => item.subject), ['Informe semanal', 'URGENT? review']);
+  const parsed = JSON.parse(input) as { emails: Array<{ n: number; f: string; s: string }> };
+  assert.deepEqual(parsed.emails.map((item) => item.n), [1, 2]);
+  assert.deepEqual(parsed.emails.map((item) => item.s), ['Informe semanal', 'URGENT? review']);
+  assert.deepEqual(parsed.emails.map((item) => item.f), ['Ana <ana@example.com>', 'Boss']);
   assert.ok(!input.includes('SECRET-GMAIL-ID'));
   assert.ok(!input.includes('SECRET-THREAD-ID'));
   assert.match(ai.calls[0]?.systemPrompt ?? '', /Solo recibes fecha, estado no leído, remitente y asunto/i);
+  assert.match(ai.calls[0]?.systemPrompt ?? '', /n=número original/);
 });
 
 test('priority payload remains valid JSON under the minimum input limit and long untrusted metadata', async () => {
@@ -184,8 +186,10 @@ test('priority payload remains valid JSON under the minimum input limit and long
   await service.prioritize(rows);
   const input = ai.calls[0]?.userText ?? '';
   assert.ok(input.length <= 1_000);
-  const parsed = JSON.parse(input) as { emails: Array<{ number: number }> };
-  assert.deepEqual(parsed.emails.map((item) => item.number), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  const parsed = JSON.parse(input) as { emails: Array<{ n: number; d: string; f: string; s: string }> };
+  assert.deepEqual(parsed.emails.map((item) => item.n), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  assert.equal(parsed.emails.length, 10);
+  assert.ok(parsed.emails.every((item) => item.d.length <= 32 && item.f.length <= 100 && item.s.length <= 160));
   assert.ok(!input.includes('SECRET-'));
   assert.ok(!input.includes('THREAD-'));
 });
