@@ -138,6 +138,10 @@ function freeFromBusy(
   return free;
 }
 
+function validateAgendaLimit(value: number): void {
+  if (!Number.isInteger(value) || value < 1 || value > 50) throw new Error('Invalid Calendar agenda event limit');
+}
+
 export class CalendarReadService {
   private readonly provider: CalendarReadProvider;
   private readonly config: CalendarReadConfig;
@@ -157,12 +161,26 @@ export class CalendarReadService {
   }
 
   async agenda(period: CalendarReadPeriod, requestedMaxEvents = this.config.maxEvents): Promise<CalendarAgendaResult> {
-    if (!Number.isInteger(requestedMaxEvents) || requestedMaxEvents < 1 || requestedMaxEvents > 50) {
-      throw new Error('Invalid Calendar agenda event limit');
-    }
+    validateAgendaLimit(requestedMaxEvents);
     const range = rangeForPeriod(this.now(), this.timeZone, period);
     const events = await this.provider.listEvents(range, Math.min(requestedMaxEvents, this.config.maxEvents));
     return { period, range, events };
+  }
+
+  async agendaRemainingToday(requestedMaxEvents = this.config.maxEvents): Promise<CalendarAgendaResult> {
+    validateAgendaLimit(requestedMaxEvents);
+    const now = this.now();
+    const day = localPeriodRange(now, this.timeZone, 'day');
+    const range: CalendarReadRange = {
+      startAt: now.toISOString(),
+      endAt: day.endIso,
+      timeZone: this.timeZone,
+    };
+    if (new Date(range.startAt).getTime() >= new Date(range.endAt).getTime()) {
+      return { period: 'today', range, events: [] };
+    }
+    const events = await this.provider.listEvents(range, Math.min(requestedMaxEvents, this.config.maxEvents));
+    return { period: 'today', range, events };
   }
 
   async availability(
