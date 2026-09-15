@@ -201,7 +201,7 @@ export class GmailReadCapability implements Capability {
     }
 
     const selected = this.resolveSelection(selection);
-    if ('reply' in selected) return selected;
+    if (!('row' in selected)) return selected;
 
     try {
       const body = await this.bodyProvider.getMessage({ id: selected.row.id, threadId: selected.row.threadId });
@@ -249,7 +249,7 @@ export class GmailReadCapability implements Capability {
     }
 
     const selected = this.resolveSelection(selection);
-    if ('reply' in selected) return selected;
+    if (!('row' in selected)) return selected;
 
     try {
       const body = await this.bodyProvider.getMessage({ id: selected.row.id, threadId: selected.row.threadId });
