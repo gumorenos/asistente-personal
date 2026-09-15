@@ -56,7 +56,7 @@ function buildSummaryPayload(row: GmailMetadataMessage, body: GmailMessageBody, 
       kind: 'untrusted_email',
       from: sanitizeSingleLine(row.from, 200),
       subject: sanitizeSingleLine(row.subject, 300),
-      receivedAt: row.internalDate,
+      receivedAt: sanitizeSingleLine(row.internalDate, 64),
       unread: row.unread,
       bodyFormat: body.format,
       bodyTruncatedByGmailReader: body.truncated,
@@ -67,21 +67,45 @@ function buildSummaryPayload(row: GmailMetadataMessage, body: GmailMessageBody, 
     bodyBudget = Math.max(0, bodyBudget - Math.max(32, payload.length - maxChars));
   }
 
-  return boundedText(payload, maxChars);
+  if (payload.length > maxChars) {
+    throw new Error('Gmail summary metadata exceeds configured analysis input limit');
+  }
+  return payload;
 }
 
-function buildPriorityPayload(rows: GmailMetadataMessage[], maxChars: number): string {
-  const payload = JSON.stringify({
+function serializePriorityPayload(
+  rows: GmailMetadataMessage[],
+  fromBudget: number,
+  subjectBudget: number,
+): string {
+  return JSON.stringify({
     kind: 'untrusted_email_metadata',
     emails: rows.map((row, index) => ({
       number: index + 1,
-      receivedAt: row.internalDate,
+      receivedAt: sanitizeSingleLine(row.internalDate, 64),
       unread: row.unread,
-      from: sanitizeSingleLine(row.from, 120),
-      subject: sanitizeSingleLine(row.subject, 200),
+      from: sanitizeSingleLine(row.from, fromBudget),
+      subject: sanitizeSingleLine(row.subject, subjectBudget),
     })),
   });
-  return boundedText(payload, maxChars);
+}
+
+function buildPriorityPayload(rows: GmailMetadataMessage[], maxChars: number): string {
+  let fromBudget = 120;
+  let subjectBudget = 200;
+  let payload = serializePriorityPayload(rows, fromBudget, subjectBudget);
+
+  while (payload.length > maxChars && (fromBudget > 24 || subjectBudget > 32)) {
+    if (subjectBudget >= fromBudget && subjectBudget > 32) subjectBudget = Math.max(32, subjectBudget - 16);
+    else if (fromBudget > 24) fromBudget = Math.max(24, fromBudget - 12);
+    else subjectBudget = Math.max(32, subjectBudget - 16);
+    payload = serializePriorityPayload(rows, fromBudget, subjectBudget);
+  }
+
+  if (payload.length > maxChars) {
+    throw new Error('Gmail priority metadata exceeds configured analysis input limit');
+  }
+  return payload;
 }
 
 export interface GmailAnalysisResult {
