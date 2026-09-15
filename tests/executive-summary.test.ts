@@ -199,6 +199,7 @@ test('executive snapshot reads Calendar today and bounded Gmail metadata only, s
     const result = await capability.handle(message('panel ejecutivo'));
     assert.equal(result?.replyPersistence, 'ephemeral');
     assert.equal(calendarProvider.listCalls.length, 1);
+    assert.equal(calendarProvider.listCalls[0]?.maxResults, 1);
     assert.equal(gmail.calls.length, 1);
     assert.deepEqual(gmail.calls[0], { unreadOnly: false, limit: 2 });
     assert.match(result?.reply ?? '', /Reunión ejecutiva/);
