@@ -260,7 +260,7 @@ if (config.retention.enabled) {
     messageDays: config.retention.messageDays,
     outboundDays: config.retention.outboundDays,
     auditDays: config.retention.auditDays,
-    briefingDays: config.briefingDays,
+    briefingDays: config.retention.briefingDays,
   });
 }
 
