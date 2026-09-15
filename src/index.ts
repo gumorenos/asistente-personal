@@ -24,6 +24,7 @@ import { CommitmentCapability } from './capabilities/commitment-capability.ts';
 import { DocumentCapability } from './capabilities/document-capability.ts';
 import { DocumentLifecycleCapability } from './capabilities/document-lifecycle-capability.ts';
 import { DocumentQaCapability } from './capabilities/document-qa-capability.ts';
+import { ExecutivePrioritiesCapability } from './capabilities/executive-priorities-capability.ts';
 import { ExecutiveSummaryCapability } from './capabilities/executive-summary-capability.ts';
 import { GmailReadCapability } from './capabilities/gmail-read-capability.ts';
 import { GmailSearchCapability } from './capabilities/gmail-search-capability.ts';
@@ -61,6 +62,8 @@ import { HybridPdfExtractor } from './documents/hybrid-pdf-extractor.ts';
 import { PopplerPdfExtractor } from './documents/poppler-pdf-extractor.ts';
 import { TesseractPdfOcrExtractor } from './documents/tesseract-pdf-ocr-extractor.ts';
 import type { DocumentExtractor } from './documents/types.ts';
+import { ExecutivePrioritiesService } from './executive/executive-priorities-service.ts';
+import { loadExecutivePrioritiesConfig } from './executive/priorities-config.ts';
 import { ExecutiveSummaryService } from './executive/executive-summary-service.ts';
 import { loadExecutiveSummaryConfig } from './executive/summary-config.ts';
 import { loadGmailAnalysisConfig } from './gmail/analysis-config.ts';
@@ -94,6 +97,7 @@ const commitmentNotificationConfig = loadCommitmentNotificationConfig(config);
 const gmailReadConfig = loadGmailReadConfig();
 const gmailAnalysisConfig = loadGmailAnalysisConfig(process.env, gmailReadConfig.enabled, config.ai.enabled);
 const executiveSummaryConfig = loadExecutiveSummaryConfig();
+const executivePrioritiesConfig = loadExecutivePrioritiesConfig();
 const database = new AppDatabase(config.dbPath);
 const messages = new MessageRepository(database);
 const notes = new NoteRepository(database);
@@ -243,6 +247,14 @@ const executiveSummaryService = new ExecutiveSummaryService(
   executiveSummaryConfig,
   config.timeZone,
 );
+const executivePrioritiesService = new ExecutivePrioritiesService(
+  commitments,
+  reminders,
+  calendarReadService,
+  gmailReadProvider,
+  executivePrioritiesConfig,
+  config.timeZone,
+);
 
 let briefingScheduler: BriefingScheduler | undefined;
 if (config.briefing.enabled) {
@@ -288,8 +300,6 @@ if (config.observer.enabled) {
 }
 
 const capabilities: Capability[] = [
-  // Document messages are terminal before local command parsing. A PDF caption can
-  // never be interpreted as `anota`, `agenda`, etc., including after OCR.
   new DocumentCapability(documents, audit, documentExtractor, {
     enabled: config.documents.enabled,
     maxBytes: config.documents.maxBytes,
@@ -298,26 +308,22 @@ const capabilities: Capability[] = [
     timeoutMs: config.documents.timeoutMs,
   }, semanticService),
   new DocumentLifecycleCapability(documents, actions, audit),
-  // Semantic/hybrid/Q&A commands must run before generic `busca ...` and generic AI parsing.
   new SemanticDocumentCapability(documents, semanticService, audit, hybridDocumentSearch),
   new DocumentQaCapability(documentQaService, audit, documentQaConfig.enabled, documentQaConfig.maxQuestionChars),
   new LocalCapabilities(notes, reminders, expenses, audit, config.timeZone),
   new CommitmentCapability(commitments, audit, config.timeZone),
   new BriefingCapability(briefingService),
-  // Stage 8A is explicit-only, deterministic and read-only; combined output is ephemeral.
   new ExecutiveSummaryCapability(executiveSummaryService, audit, executiveSummaryConfig),
+  new ExecutivePrioritiesCapability(executivePrioritiesService, audit, executivePrioritiesConfig),
   new ObserverAdminCapability(observedChats, audit, config.observer.enabled),
   new ObserverSearchCapability(observedChats, observationSink, audit, config.timeZone),
   new ObserverReadCapability(observedChats, observationSink, audit, config.timeZone),
-  // Gmail search owns every explicit `busca correos ...` form before generic local FTS.
   GmailSearchCapability.fromEnvironment(audit, config.timeZone),
   new MemorySearchCapability(memorySearch, audit, config.timeZone),
-  // Gmail 7A-7D remain explicit-only; 7D analysis is a separate opt-in and never executes actions.
   new GmailReadCapability(gmailReadProvider, audit, gmailReadConfig, config.timeZone, {
     analysisConfig: gmailAnalysisConfig,
     analysisService: gmailAnalysisService,
   }),
-  // Calendar reads/checks/suggestions are explicit-only and cannot execute actions.
   new CalendarExactAvailabilityCapability(
     calendarReadService,
     audit,
@@ -355,7 +361,6 @@ const healthServer = await createHealthServer(config.healthHost, config.healthPo
   getAssistantStatus: () => ({ state: appState, transport: transport.name, transportState: transport.getState() }),
 });
 
-// These jobs are transport-independent and can run even if WhatsApp is degraded.
 retentionScheduler?.start();
 documentRetentionScheduler?.start();
 observerRetentionScheduler?.start();
@@ -389,6 +394,7 @@ try {
     gmailMetadataReadEnabled: gmailReadConfig.enabled,
     gmailAnalysisEnabled: gmailAnalysisConfig.enabled,
     executiveSummaryEnabled: executiveSummaryConfig.enabled,
+    executivePrioritiesEnabled: executivePrioritiesConfig.enabled,
     calendarReadsEnabled: calendarReadConfig.enabled,
     calendarReadWindow: calendarReadConfig.enabled
       ? `${String(Math.floor(calendarReadConfig.dayStartMinutes / 60)).padStart(2, '0')}:${String(calendarReadConfig.dayStartMinutes % 60).padStart(2, '0')}-${String(Math.floor(calendarReadConfig.dayEndMinutes / 60)).padStart(2, '0')}:${String(calendarReadConfig.dayEndMinutes % 60).padStart(2, '0')}`
