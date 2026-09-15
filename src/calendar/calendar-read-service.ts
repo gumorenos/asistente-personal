@@ -156,9 +156,12 @@ export class CalendarReadService {
     this.now = now;
   }
 
-  async agenda(period: CalendarReadPeriod): Promise<CalendarAgendaResult> {
+  async agenda(period: CalendarReadPeriod, requestedMaxEvents = this.config.maxEvents): Promise<CalendarAgendaResult> {
+    if (!Number.isInteger(requestedMaxEvents) || requestedMaxEvents < 1 || requestedMaxEvents > 50) {
+      throw new Error('Invalid Calendar agenda event limit');
+    }
     const range = rangeForPeriod(this.now(), this.timeZone, period);
-    const events = await this.provider.listEvents(range, this.config.maxEvents);
+    const events = await this.provider.listEvents(range, Math.min(requestedMaxEvents, this.config.maxEvents));
     return { period, range, events };
   }
 
