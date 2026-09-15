@@ -84,6 +84,14 @@ function compareActions(left: PriorityAction, right: PriorityAction): number {
   return left.id - right.id;
 }
 
+function compareUnreadGmail(left: GmailMetadataMessage, right: GmailMetadataMessage): number {
+  const dateDelta = new Date(right.internalDate).getTime() - new Date(left.internalDate).getTime();
+  if (dateDelta !== 0) return dateDelta;
+  const fromDelta = left.from.localeCompare(right.from);
+  if (fromDelta !== 0) return fromDelta;
+  return left.subject.localeCompare(right.subject);
+}
+
 function formatAction(item: PriorityAction, timeZone: string): string {
   const icon = item.source === 'commitment' ? '🤝' : '⏰';
   const label = item.source === 'commitment' ? 'compromiso' : 'recordatorio';
@@ -177,7 +185,10 @@ export class ExecutivePrioritiesService {
         unreadRows = (await this.gmail.listInbox({
           unreadOnly: true,
           limit: this.config.maxGmailMessages,
-        })).slice(0, this.config.maxGmailMessages);
+        }))
+          .filter((row) => row.unread)
+          .sort(compareUnreadGmail)
+          .slice(0, this.config.maxGmailMessages);
       } catch {
         gmailStatus = 'failed';
       }
