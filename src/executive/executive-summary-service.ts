@@ -145,7 +145,7 @@ export class ExecutiveSummaryService {
     let calendarResult: CalendarAgendaResult | undefined;
     if (this.calendar) {
       try {
-        calendarResult = await this.calendar.agenda('today');
+        calendarResult = await this.calendar.agenda('today', this.config.maxCalendarEvents);
       } catch {
         calendarStatus = 'failed';
       }
