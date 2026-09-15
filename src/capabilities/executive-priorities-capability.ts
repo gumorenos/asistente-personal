@@ -8,6 +8,7 @@ function fold(value: string): string {
   return value
     .normalize('NFD')
     .replace(/\p{Diacritic}/gu, '')
+    .replace(/[?!¡¿.,;:]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
