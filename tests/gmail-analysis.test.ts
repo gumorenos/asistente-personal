@@ -169,6 +169,27 @@ test('priority service exports metadata only, preserves source numbers and never
   assert.match(ai.calls[0]?.systemPrompt ?? '', /Solo recibes fecha, estado no leído, remitente y asunto/i);
 });
 
+test('priority payload remains valid JSON under the minimum input limit and long untrusted metadata', async () => {
+  const ai = new FakeAiProvider();
+  const service = new GmailAnalysisService(ai, analysisConfig({ maxMessages: 10, maxInputChars: 1_000 }));
+  const rows = Array.from({ length: 10 }, (_, index) => ({
+    ...metadataRow,
+    id: `SECRET-${index}`,
+    threadId: `THREAD-${index}`,
+    internalDate: `${'date'.repeat(30)}-${index}`,
+    from: `from-${index}-${'x'.repeat(400)}`,
+    subject: `subject-${index}-${'y'.repeat(700)}`,
+  }));
+
+  await service.prioritize(rows);
+  const input = ai.calls[0]?.userText ?? '';
+  assert.ok(input.length <= 1_000);
+  const parsed = JSON.parse(input) as { emails: Array<{ number: number }> };
+  assert.deepEqual(parsed.emails.map((item) => item.number), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  assert.ok(!input.includes('SECRET-'));
+  assert.ok(!input.includes('THREAD-'));
+});
+
 test('summary command requires an explicit fresh list, reads exactly one selected body and returns ephemeral output', async () => {
   const db = new AppDatabase(':memory:');
   try {
@@ -248,7 +269,7 @@ test('priority command uses metadata only, obeys the smaller configured limit an
       analysisService: service,
     });
 
-    await capability.handle(message('correos'));
+    await capability.handle(message('correos 3'));
     const result = await capability.handle(message('prioriza correos 3'));
     assert.equal(result?.replyPersistence, 'ephemeral');
     assert.match(result?.reply ?? '', /Basada solo en metadata/);
