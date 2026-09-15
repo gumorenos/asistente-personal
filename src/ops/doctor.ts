@@ -16,6 +16,7 @@ import {
   type CommitmentNotificationConfig,
 } from '../commitments/notification-config.ts';
 import { loadConfig, type AppConfig } from '../config.ts';
+import { loadExecutivePrioritiesConfig, type ExecutivePrioritiesConfig } from '../executive/priorities-config.ts';
 import { loadExecutiveSummaryConfig, type ExecutiveSummaryConfig } from '../executive/summary-config.ts';
 import { loadGmailReadConfig, type GmailReadConfig } from '../gmail/read-config.ts';
 
@@ -124,6 +125,7 @@ export function runDoctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
   let commitmentNotifications: CommitmentNotificationConfig;
   let gmailRead: GmailReadConfig;
   let executiveSummary: ExecutiveSummaryConfig;
+  let executivePriorities: ExecutivePrioritiesConfig;
   try {
     config = loadConfig(env);
     calendarRead = loadCalendarReadConfig(config, env);
@@ -132,6 +134,7 @@ export function runDoctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
     commitmentNotifications = loadCommitmentNotificationConfig(config, env);
     gmailRead = loadGmailReadConfig(env);
     executiveSummary = loadExecutiveSummaryConfig(env);
+    executivePriorities = loadExecutivePrioritiesConfig(env);
     add(checks, 'config', 'pass', 'configuration valid');
   } catch (error) {
     add(checks, 'config', 'fail', error instanceof Error ? error.message : String(error));
@@ -188,6 +191,9 @@ export function runDoctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
     : 'disabled');
   add(checks, 'feature.executive_summary', 'pass', executiveSummary.enabled
     ? `enabled (${executiveSummary.maxLocalItems} local / ${executiveSummary.maxCalendarEvents} calendar / ${executiveSummary.maxGmailMessages} Gmail max; explicit only)`
+    : 'disabled');
+  add(checks, 'feature.executive_priorities', 'pass', executivePriorities.enabled
+    ? `enabled (${executivePriorities.maxActionItems} action / ${executivePriorities.maxGmailMessages} unread Gmail max; deterministic explicit only)`
     : 'disabled');
   add(checks, 'feature.calendar_write', 'pass', config.calendar.enabled ? 'enabled (connectivity not tested)' : 'disabled');
   add(checks, 'feature.observer', 'pass', config.observer.enabled ? 'enabled' : 'disabled');

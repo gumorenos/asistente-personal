@@ -32,6 +32,7 @@ export class ReminderRepository {
   }
 
   listPending(limit = 10): ReminderRecord[] {
+    validateLimit(limit);
     const rows = this.database.native
       .prepare(`
         SELECT id, body, due_at, chat_id, status, delivered_at
@@ -44,7 +45,26 @@ export class ReminderRepository {
     return rows.map(mapRow);
   }
 
+  listPendingDueBefore(endIso: string, limit = 10): ReminderRecord[] {
+    validateIso(endIso, 'Invalid reminder range end');
+    validateLimit(limit);
+    const rows = this.database.native
+      .prepare(`
+        SELECT id, body, due_at, chat_id, status, delivered_at
+        FROM reminders
+        WHERE status = 'pending'
+          AND due_at IS NOT NULL
+          AND due_at < ?
+        ORDER BY due_at ASC, id ASC
+        LIMIT ?
+      `)
+      .all(endIso, limit) as unknown as RawReminderRow[];
+    return rows.map(mapRow);
+  }
+
   listDue(nowIso: string, limit = 20): ReminderRecord[] {
+    validateIso(nowIso, 'Invalid reminder due boundary');
+    validateLimit(limit);
     const rows = this.database.native
       .prepare(`
         SELECT id, body, due_at, chat_id, status, delivered_at
@@ -81,6 +101,14 @@ export class ReminderRepository {
       .run(status, id);
     return result.changes === 1;
   }
+}
+
+function validateLimit(limit: number): void {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('Invalid reminder list limit');
+}
+
+function validateIso(value: string, message: string): void {
+  if (!Number.isFinite(new Date(value).getTime())) throw new Error(message);
 }
 
 interface RawReminderRow {
