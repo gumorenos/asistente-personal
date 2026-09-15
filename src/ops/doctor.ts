@@ -16,6 +16,7 @@ import {
   type CommitmentNotificationConfig,
 } from '../commitments/notification-config.ts';
 import { loadConfig, type AppConfig } from '../config.ts';
+import { loadExecutiveSummaryConfig, type ExecutiveSummaryConfig } from '../executive/summary-config.ts';
 import { loadGmailReadConfig, type GmailReadConfig } from '../gmail/read-config.ts';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
@@ -122,6 +123,7 @@ export function runDoctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
   let calendarExact: CalendarExactAvailabilityConfig;
   let commitmentNotifications: CommitmentNotificationConfig;
   let gmailRead: GmailReadConfig;
+  let executiveSummary: ExecutiveSummaryConfig;
   try {
     config = loadConfig(env);
     calendarRead = loadCalendarReadConfig(config, env);
@@ -129,6 +131,7 @@ export function runDoctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
     calendarExact = loadCalendarExactAvailabilityConfig(calendarRead, env);
     commitmentNotifications = loadCommitmentNotificationConfig(config, env);
     gmailRead = loadGmailReadConfig(env);
+    executiveSummary = loadExecutiveSummaryConfig(env);
     add(checks, 'config', 'pass', 'configuration valid');
   } catch (error) {
     add(checks, 'config', 'fail', error instanceof Error ? error.message : String(error));
@@ -182,6 +185,9 @@ export function runDoctor(env: NodeJS.ProcessEnv = process.env): DoctorReport {
     : 'disabled');
   add(checks, 'feature.calendar_exact_availability', 'pass', calendarExact.enabled
     ? 'enabled (exact interval only; connectivity not tested)'
+    : 'disabled');
+  add(checks, 'feature.executive_summary', 'pass', executiveSummary.enabled
+    ? `enabled (${executiveSummary.maxLocalItems} local / ${executiveSummary.maxCalendarEvents} calendar / ${executiveSummary.maxGmailMessages} Gmail max; explicit only)`
     : 'disabled');
   add(checks, 'feature.calendar_write', 'pass', config.calendar.enabled ? 'enabled (connectivity not tested)' : 'disabled');
   add(checks, 'feature.observer', 'pass', config.observer.enabled ? 'enabled' : 'disabled');

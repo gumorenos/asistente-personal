@@ -24,6 +24,7 @@ import { CommitmentCapability } from './capabilities/commitment-capability.ts';
 import { DocumentCapability } from './capabilities/document-capability.ts';
 import { DocumentLifecycleCapability } from './capabilities/document-lifecycle-capability.ts';
 import { DocumentQaCapability } from './capabilities/document-qa-capability.ts';
+import { ExecutiveSummaryCapability } from './capabilities/executive-summary-capability.ts';
 import { GmailReadCapability } from './capabilities/gmail-read-capability.ts';
 import { GmailSearchCapability } from './capabilities/gmail-search-capability.ts';
 import { LocalCapabilities } from './capabilities/local-capabilities.ts';
@@ -60,6 +61,8 @@ import { HybridPdfExtractor } from './documents/hybrid-pdf-extractor.ts';
 import { PopplerPdfExtractor } from './documents/poppler-pdf-extractor.ts';
 import { TesseractPdfOcrExtractor } from './documents/tesseract-pdf-ocr-extractor.ts';
 import type { DocumentExtractor } from './documents/types.ts';
+import { ExecutiveSummaryService } from './executive/executive-summary-service.ts';
+import { loadExecutiveSummaryConfig } from './executive/summary-config.ts';
 import { loadGmailAnalysisConfig } from './gmail/analysis-config.ts';
 import { GmailAnalysisService } from './gmail/analysis-service.ts';
 import { GoogleGmailMetadataProvider } from './gmail/google-gmail-metadata-provider.ts';
@@ -90,6 +93,7 @@ const calendarExactAvailabilityConfig = loadCalendarExactAvailabilityConfig(cale
 const commitmentNotificationConfig = loadCommitmentNotificationConfig(config);
 const gmailReadConfig = loadGmailReadConfig();
 const gmailAnalysisConfig = loadGmailAnalysisConfig(process.env, gmailReadConfig.enabled, config.ai.enabled);
+const executiveSummaryConfig = loadExecutiveSummaryConfig();
 const database = new AppDatabase(config.dbPath);
 const messages = new MessageRepository(database);
 const notes = new NoteRepository(database);
@@ -231,6 +235,15 @@ if (gmailReadConfig.enabled) {
   gmailReadProvider = new GoogleGmailMetadataProvider({ timeoutMs: gmailReadConfig.timeoutMs }, gmailTokenProvider);
 }
 
+const executiveSummaryService = new ExecutiveSummaryService(
+  commitments,
+  reminders,
+  calendarReadService,
+  gmailReadProvider,
+  executiveSummaryConfig,
+  config.timeZone,
+);
+
 let briefingScheduler: BriefingScheduler | undefined;
 if (config.briefing.enabled) {
   briefingScheduler = new BriefingScheduler(
@@ -291,6 +304,8 @@ const capabilities: Capability[] = [
   new LocalCapabilities(notes, reminders, expenses, audit, config.timeZone),
   new CommitmentCapability(commitments, audit, config.timeZone),
   new BriefingCapability(briefingService),
+  // Stage 8A is explicit-only, deterministic and read-only; combined output is ephemeral.
+  new ExecutiveSummaryCapability(executiveSummaryService, audit, executiveSummaryConfig),
   new ObserverAdminCapability(observedChats, audit, config.observer.enabled),
   new ObserverSearchCapability(observedChats, observationSink, audit, config.timeZone),
   new ObserverReadCapability(observedChats, observationSink, audit, config.timeZone),
@@ -373,6 +388,7 @@ try {
     documentQaEnabled: documentQaConfig.enabled,
     gmailMetadataReadEnabled: gmailReadConfig.enabled,
     gmailAnalysisEnabled: gmailAnalysisConfig.enabled,
+    executiveSummaryEnabled: executiveSummaryConfig.enabled,
     calendarReadsEnabled: calendarReadConfig.enabled,
     calendarReadWindow: calendarReadConfig.enabled
       ? `${String(Math.floor(calendarReadConfig.dayStartMinutes / 60)).padStart(2, '0')}:${String(calendarReadConfig.dayStartMinutes % 60).padStart(2, '0')}-${String(Math.floor(calendarReadConfig.dayEndMinutes / 60)).padStart(2, '0')}:${String(calendarReadConfig.dayEndMinutes % 60).padStart(2, '0')}`
