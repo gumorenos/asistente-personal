@@ -2,13 +2,24 @@
 
 Los tests/CI automatizados no convierten ninguna prueba Gmail/OAuth/WhatsApp/proveedor IA real en PASS. Según la estrategia actual del proyecto, estos checks live se acumulan para una ronda posterior junto con otros bloques; no se solicita QA remoto inmediatamente después de Stage 7D.
 
-## Gate automatizado
+## Gate automatizado — PASS
 
-- [ ] TypeScript `tsc --noEmit` PASS en HEAD final.
-- [ ] Tests completos PASS en HEAD final.
-- [ ] `npm audit --omit=dev --audit-level=high` PASS.
-- [ ] Docker linux/amd64 build + PDF/OCR + bind-mount smoke PASS.
-- [ ] Docker linux/arm64 build + PDF/OCR + bind-mount smoke PASS.
+Implementación validada en `102e7027a7e0d78d73f78fe7a12a11d76b8b51d8`, CI #676 (run `34979276710`):
+
+- [x] `npm ci --no-audit --no-fund` PASS en Node 22.18.0 / npm 10.9.3.
+- [x] TypeScript `tsc --noEmit` PASS.
+- [x] 335/335 tests PASS, 0 fail/skipped/cancelled.
+- [x] Edge case de priorización: 10 correos con metadata hostil/larga y límite mínimo de 1000 chars conserva JSON válido y todas las filas.
+- [x] `npm audit --omit=dev --audit-level=high` PASS — 0 vulnerabilidades.
+- [x] `docker compose config` con identidad non-root PASS.
+- [x] Docker linux/amd64 build PASS.
+- [x] linux/amd64 PDF/OCR smoke PASS.
+- [x] linux/amd64 bind-mounted data write smoke como host identity PASS.
+- [x] Docker linux/arm64 build PASS.
+- [x] linux/arm64 PDF/OCR smoke PASS.
+- [x] linux/arm64 bind-mounted data write smoke como host identity PASS.
+
+`sharp` queda fijado en la versión parcheada `0.35.4`; el lockfile fue regenerado limpiamente y el helper temporal usado para refrescarlo fue eliminado de la rama. No se actualizó Baileys como parte de este fix.
 
 ## Configuración / doble opt-in — PENDING live
 
@@ -57,4 +68,4 @@ Los tests/CI automatizados no convierten ninguna prueba Gmail/OAuth/WhatsApp/pro
 
 ## Criterio de cierre live
 
-Stage 7D puede cerrarse live solo cuando se ejecute una ronda acumulada con evidencia reproducible de los checks aplicables. Hasta entonces: **código/CI automatizado por cerrar + QA Gmail/OAuth/WhatsApp/IA real pendiente**.
+Stage 7D puede cerrarse live solo cuando se ejecute una ronda acumulada con evidencia reproducible de los checks aplicables. Hasta entonces: **código/CI automatizado PASS + QA Gmail/OAuth/WhatsApp/IA real pendiente**.
