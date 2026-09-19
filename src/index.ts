@@ -24,6 +24,7 @@ import { CommitmentCapability } from './capabilities/commitment-capability.ts';
 import { DocumentCapability } from './capabilities/document-capability.ts';
 import { DocumentLifecycleCapability } from './capabilities/document-lifecycle-capability.ts';
 import { DocumentQaCapability } from './capabilities/document-qa-capability.ts';
+import { ExecutiveBriefingCapability } from './capabilities/executive-briefing-capability.ts';
 import { ExecutivePrioritiesCapability } from './capabilities/executive-priorities-capability.ts';
 import { ExecutiveSummaryCapability } from './capabilities/executive-summary-capability.ts';
 import { GmailReadCapability } from './capabilities/gmail-read-capability.ts';
@@ -62,6 +63,8 @@ import { HybridPdfExtractor } from './documents/hybrid-pdf-extractor.ts';
 import { PopplerPdfExtractor } from './documents/poppler-pdf-extractor.ts';
 import { TesseractPdfOcrExtractor } from './documents/tesseract-pdf-ocr-extractor.ts';
 import type { DocumentExtractor } from './documents/types.ts';
+import { loadExecutiveBriefingConfig } from './executive/briefing-config.ts';
+import { ExecutiveBriefingService } from './executive/executive-briefing-service.ts';
 import { ExecutivePrioritiesService } from './executive/executive-priorities-service.ts';
 import { loadExecutivePrioritiesConfig } from './executive/priorities-config.ts';
 import { ExecutiveSummaryService } from './executive/executive-summary-service.ts';
@@ -98,6 +101,7 @@ const gmailReadConfig = loadGmailReadConfig();
 const gmailAnalysisConfig = loadGmailAnalysisConfig(process.env, gmailReadConfig.enabled, config.ai.enabled);
 const executiveSummaryConfig = loadExecutiveSummaryConfig();
 const executivePrioritiesConfig = loadExecutivePrioritiesConfig();
+const executiveBriefingConfig = loadExecutiveBriefingConfig();
 const database = new AppDatabase(config.dbPath);
 const messages = new MessageRepository(database);
 const notes = new NoteRepository(database);
@@ -120,193 +124,54 @@ const briefingService = new BriefingService(notes, reminders, commitments, expen
 
 let transport: MessageTransport;
 if (config.whatsapp.enabled) {
-  transport = new BaileysWhatsAppTransport(
-    config.whatsapp,
-    database,
-    messages,
-    config.observer.enabled
-      ? async (message) => { await observerService.observe(message); }
-      : undefined,
-  );
-} else {
-  transport = new DisabledTransport();
-}
+  transport = new BaileysWhatsAppTransport(config.whatsapp, database, messages, config.observer.enabled ? async (message) => { await observerService.observe(message); } : undefined);
+} else transport = new DisabledTransport();
 
 let aiProvider: AiProvider | undefined;
-if (config.ai.enabled) {
-  aiProvider = new OpenAICompatibleProvider({
-    baseUrl: config.ai.baseUrl!, apiKey: config.ai.apiKey, model: config.ai.model!,
-    timeoutMs: config.ai.timeoutMs, maxOutputTokens: config.ai.maxOutputTokens,
-  });
-}
-
-const gmailAnalysisService = gmailAnalysisConfig.enabled && aiProvider
-  ? new GmailAnalysisService(aiProvider, gmailAnalysisConfig)
-  : undefined;
-
+if (config.ai.enabled) aiProvider = new OpenAICompatibleProvider({ baseUrl: config.ai.baseUrl!, apiKey: config.ai.apiKey, model: config.ai.model!, timeoutMs: config.ai.timeoutMs, maxOutputTokens: config.ai.maxOutputTokens });
+const gmailAnalysisService = gmailAnalysisConfig.enabled && aiProvider ? new GmailAnalysisService(aiProvider, gmailAnalysisConfig) : undefined;
 let transcriptionProvider: TranscriptionProvider | undefined;
-if (config.transcription.enabled) {
-  transcriptionProvider = new OpenAICompatibleTranscriptionProvider({
-    baseUrl: config.transcription.baseUrl!, apiKey: config.transcription.apiKey,
-    model: config.transcription.model!, timeoutMs: config.transcription.timeoutMs,
-  });
-}
-
+if (config.transcription.enabled) transcriptionProvider = new OpenAICompatibleTranscriptionProvider({ baseUrl: config.transcription.baseUrl!, apiKey: config.transcription.apiKey, model: config.transcription.model!, timeoutMs: config.transcription.timeoutMs });
 let documentExtractor: DocumentExtractor | undefined;
 if (config.documents.enabled) {
   const poppler = new PopplerPdfExtractor();
-  const ocr = config.documents.ocr.enabled
-    ? new TesseractPdfOcrExtractor({
-        maxPages: config.documents.ocr.maxPages,
-        dpi: config.documents.ocr.dpi,
-        languages: config.documents.ocr.languages,
-      })
-    : undefined;
-  documentExtractor = new HybridPdfExtractor(poppler, ocr, {
-    ocrTimeoutMs: config.documents.ocr.timeoutMs,
-  });
+  const ocr = config.documents.ocr.enabled ? new TesseractPdfOcrExtractor({ maxPages: config.documents.ocr.maxPages, dpi: config.documents.ocr.dpi, languages: config.documents.ocr.languages }) : undefined;
+  documentExtractor = new HybridPdfExtractor(poppler, ocr, { ocrTimeoutMs: config.documents.ocr.timeoutMs });
 }
-
 let embeddingProvider: EmbeddingProvider | undefined;
-if (config.semantic.embeddings.enabled) {
-  embeddingProvider = new OpenAICompatibleEmbeddingProvider({
-    baseUrl: config.semantic.embeddings.baseUrl!,
-    apiKey: config.semantic.embeddings.apiKey,
-    model: config.semantic.embeddings.model!,
-    dimensions: config.semantic.embeddings.dimensions,
-    timeoutMs: config.semantic.embeddings.timeoutMs,
-  });
-}
-
-const semanticService = new DocumentSemanticService(
-  documents,
-  documentSemanticRepository,
-  audit,
-  embeddingProvider,
-  {
-    enabled: config.semantic.enabled,
-    maxChars: config.semantic.chunkMaxChars,
-    overlapChars: config.semantic.chunkOverlapChars,
-    maxChunks: config.semantic.maxChunks,
-    embeddingBatchSize: config.semantic.embeddings.batchSize,
-  },
-);
+if (config.semantic.embeddings.enabled) embeddingProvider = new OpenAICompatibleEmbeddingProvider({ baseUrl: config.semantic.embeddings.baseUrl!, apiKey: config.semantic.embeddings.apiKey, model: config.semantic.embeddings.model!, dimensions: config.semantic.embeddings.dimensions, timeoutMs: config.semantic.embeddings.timeoutMs });
+const semanticService = new DocumentSemanticService(documents, documentSemanticRepository, audit, embeddingProvider, { enabled: config.semantic.enabled, maxChars: config.semantic.chunkMaxChars, overlapChars: config.semantic.chunkOverlapChars, maxChunks: config.semantic.maxChunks, embeddingBatchSize: config.semantic.embeddings.batchSize });
 const hybridDocumentSearch = new HybridDocumentSearchService(memorySearch, semanticService);
-const documentQaService = documentQaConfig.enabled && aiProvider
-  ? new DocumentQaService(hybridDocumentSearch, aiProvider, documentQaConfig)
-  : undefined;
-
+const documentQaService = documentQaConfig.enabled && aiProvider ? new DocumentQaService(hybridDocumentSearch, aiProvider, documentQaConfig) : undefined;
 let googleCalendarTokenProvider: GoogleOAuthAccessTokenProvider | undefined;
-if (config.calendar.enabled || calendarReadConfig.enabled) {
-  googleCalendarTokenProvider = new GoogleOAuthAccessTokenProvider({
-    clientId: config.calendar.clientId!,
-    clientSecret: config.calendar.clientSecret!,
-    refreshToken: config.calendar.refreshToken!,
-    timeoutMs: config.calendar.timeoutMs,
-  });
-}
-
+if (config.calendar.enabled || calendarReadConfig.enabled) googleCalendarTokenProvider = new GoogleOAuthAccessTokenProvider({ clientId: config.calendar.clientId!, clientSecret: config.calendar.clientSecret!, refreshToken: config.calendar.refreshToken!, timeoutMs: config.calendar.timeoutMs });
 let calendarExecutor: CalendarActionExecutor | undefined;
-if (config.calendar.enabled) {
-  const calendarProvider = new GoogleCalendarProvider({
-    calendarId: config.calendar.calendarId,
-    timeoutMs: config.calendar.timeoutMs,
-  }, googleCalendarTokenProvider!);
-  calendarExecutor = new CalendarActionExecutor(actions, actionExecutions, audit, calendarProvider);
-}
-
+if (config.calendar.enabled) calendarExecutor = new CalendarActionExecutor(actions, actionExecutions, audit, new GoogleCalendarProvider({ calendarId: config.calendar.calendarId, timeoutMs: config.calendar.timeoutMs }, googleCalendarTokenProvider!));
 let calendarReadService: CalendarReadService | undefined;
-if (calendarReadConfig.enabled) {
-  const calendarReadProvider = new GoogleCalendarReadProvider({
-    calendarId: config.calendar.calendarId,
-    timeoutMs: config.calendar.timeoutMs,
-  }, googleCalendarTokenProvider!);
-  calendarReadService = new CalendarReadService(calendarReadProvider, calendarReadConfig, config.timeZone);
-}
-
-const calendarSlotSuggestionService = calendarSlotSuggestionConfig.enabled && calendarReadService
-  ? new CalendarSlotSuggestionService(calendarReadService, calendarSlotSuggestionConfig)
-  : undefined;
-
+if (calendarReadConfig.enabled) calendarReadService = new CalendarReadService(new GoogleCalendarReadProvider({ calendarId: config.calendar.calendarId, timeoutMs: config.calendar.timeoutMs }, googleCalendarTokenProvider!), calendarReadConfig, config.timeZone);
+const calendarSlotSuggestionService = calendarSlotSuggestionConfig.enabled && calendarReadService ? new CalendarSlotSuggestionService(calendarReadService, calendarSlotSuggestionConfig) : undefined;
 let gmailReadProvider: GoogleGmailMetadataProvider | undefined;
 if (gmailReadConfig.enabled) {
-  const gmailTokenProvider = new GoogleOAuthAccessTokenProvider({
-    clientId: gmailReadConfig.clientId!,
-    clientSecret: gmailReadConfig.clientSecret!,
-    refreshToken: gmailReadConfig.refreshToken!,
-    timeoutMs: gmailReadConfig.timeoutMs,
-  });
+  const gmailTokenProvider = new GoogleOAuthAccessTokenProvider({ clientId: gmailReadConfig.clientId!, clientSecret: gmailReadConfig.clientSecret!, refreshToken: gmailReadConfig.refreshToken!, timeoutMs: gmailReadConfig.timeoutMs });
   gmailReadProvider = new GoogleGmailMetadataProvider({ timeoutMs: gmailReadConfig.timeoutMs }, gmailTokenProvider);
 }
-
-const executiveSummaryService = new ExecutiveSummaryService(
-  commitments,
-  reminders,
-  calendarReadService,
-  gmailReadProvider,
-  executiveSummaryConfig,
-  config.timeZone,
-);
-const executivePrioritiesService = new ExecutivePrioritiesService(
-  commitments,
-  reminders,
-  calendarReadService,
-  gmailReadProvider,
-  executivePrioritiesConfig,
-  config.timeZone,
-);
+const executiveSummaryService = new ExecutiveSummaryService(commitments, reminders, calendarReadService, gmailReadProvider, executiveSummaryConfig, config.timeZone);
+const executivePrioritiesService = new ExecutivePrioritiesService(commitments, reminders, calendarReadService, gmailReadProvider, executivePrioritiesConfig, config.timeZone);
+const executiveBriefingService = new ExecutiveBriefingService(commitments, reminders, calendarReadService, gmailReadProvider, executiveBriefingConfig, config.timeZone);
 
 let briefingScheduler: BriefingScheduler | undefined;
-if (config.briefing.enabled) {
-  briefingScheduler = new BriefingScheduler(
-    briefingService,
-    briefingDeliveries,
-    transport,
-    audit,
-    config.briefing.destinationJid!,
-    config.timeZone,
-    { hour: config.briefing.hour, minute: config.briefing.minute },
-  );
-}
-
+if (config.briefing.enabled) briefingScheduler = new BriefingScheduler(briefingService, briefingDeliveries, transport, audit, config.briefing.destinationJid!, config.timeZone, { hour: config.briefing.hour, minute: config.briefing.minute });
 let commitmentNotificationScheduler: CommitmentNotificationScheduler | undefined;
-if (commitmentNotificationConfig.enabled) {
-  commitmentNotificationScheduler = new CommitmentNotificationScheduler(
-    commitments,
-    transport,
-    audit,
-    commitmentNotificationConfig.destinationJid!,
-  );
-}
-
+if (commitmentNotificationConfig.enabled) commitmentNotificationScheduler = new CommitmentNotificationScheduler(commitments, transport, audit, commitmentNotificationConfig.destinationJid!);
 let retentionScheduler: RetentionScheduler | undefined;
-if (config.retention.enabled) {
-  retentionScheduler = new RetentionScheduler(retention, audit, {
-    messageDays: config.retention.messageDays,
-    outboundDays: config.retention.outboundDays,
-    auditDays: config.retention.auditDays,
-    briefingDays: config.retention.briefingDays,
-  });
-}
-
+if (config.retention.enabled) retentionScheduler = new RetentionScheduler(retention, audit, { messageDays: config.retention.messageDays, outboundDays: config.retention.outboundDays, auditDays: config.retention.auditDays, briefingDays: config.retention.briefingDays });
 let documentRetentionScheduler: DocumentRetentionScheduler | undefined;
-if (config.documents.retention.enabled) {
-  documentRetentionScheduler = new DocumentRetentionScheduler(documents, audit, config.documents.retention.days);
-}
-
+if (config.documents.retention.enabled) documentRetentionScheduler = new DocumentRetentionScheduler(documents, audit, config.documents.retention.days);
 let observerRetentionScheduler: ObserverRetentionScheduler | undefined;
-if (config.observer.enabled) {
-  observerRetentionScheduler = new ObserverRetentionScheduler(observationSink, audit);
-}
+if (config.observer.enabled) observerRetentionScheduler = new ObserverRetentionScheduler(observationSink, audit);
 
 const capabilities: Capability[] = [
-  new DocumentCapability(documents, audit, documentExtractor, {
-    enabled: config.documents.enabled,
-    maxBytes: config.documents.maxBytes,
-    maxPages: config.documents.maxPages,
-    maxTextChars: config.documents.maxTextChars,
-    timeoutMs: config.documents.timeoutMs,
-  }, semanticService),
+  new DocumentCapability(documents, audit, documentExtractor, { enabled: config.documents.enabled, maxBytes: config.documents.maxBytes, maxPages: config.documents.maxPages, maxTextChars: config.documents.maxTextChars, timeoutMs: config.documents.timeoutMs }, semanticService),
   new DocumentLifecycleCapability(documents, actions, audit),
   new SemanticDocumentCapability(documents, semanticService, audit, hybridDocumentSearch),
   new DocumentQaCapability(documentQaService, audit, documentQaConfig.enabled, documentQaConfig.maxQuestionChars),
@@ -315,137 +180,49 @@ const capabilities: Capability[] = [
   new BriefingCapability(briefingService),
   new ExecutiveSummaryCapability(executiveSummaryService, audit, executiveSummaryConfig),
   new ExecutivePrioritiesCapability(executivePrioritiesService, audit, executivePrioritiesConfig),
+  new ExecutiveBriefingCapability(executiveBriefingService, audit, executiveBriefingConfig),
   new ObserverAdminCapability(observedChats, audit, config.observer.enabled),
   new ObserverSearchCapability(observedChats, observationSink, audit, config.timeZone),
   new ObserverReadCapability(observedChats, observationSink, audit, config.timeZone),
   GmailSearchCapability.fromEnvironment(audit, config.timeZone),
   new MemorySearchCapability(memorySearch, audit, config.timeZone),
-  new GmailReadCapability(gmailReadProvider, audit, gmailReadConfig, config.timeZone, {
-    analysisConfig: gmailAnalysisConfig,
-    analysisService: gmailAnalysisService,
-  }),
-  new CalendarExactAvailabilityCapability(
-    calendarReadService,
-    audit,
-    calendarExactAvailabilityConfig,
-    config.timeZone,
-  ),
-  new CalendarSlotSuggestionCapability(
-    calendarSlotSuggestionService,
-    audit,
-    calendarSlotSuggestionConfig,
-    config.timeZone,
-  ),
+  new GmailReadCapability(gmailReadProvider, audit, gmailReadConfig, config.timeZone, { analysisConfig: gmailAnalysisConfig, analysisService: gmailAnalysisService }),
+  new CalendarExactAvailabilityCapability(calendarReadService, audit, calendarExactAvailabilityConfig, config.timeZone),
+  new CalendarSlotSuggestionCapability(calendarSlotSuggestionService, audit, calendarSlotSuggestionConfig, config.timeZone),
   new CalendarReadCapability(calendarReadService, audit, calendarReadConfig, config.timeZone),
   new CalendarProposalCapability(actions, audit, config.timeZone),
   new ActionApprovalCapability(actions, audit),
   new ActionExecutionCapability(actions, config.calendar.enabled, calendarExecutor, documentActionExecutor),
-  new AudioTranscriptionCapability(transcriptionProvider, audit, {
-    enabled: config.transcription.enabled,
-    maxBytes: config.transcription.maxBytes,
-    maxTranscriptChars: config.transcription.maxTranscriptChars,
-  }),
-  new AiCapability(aiProvider, audit, {
-    enabled: config.ai.enabled,
-    maxInputChars: config.ai.maxInputChars,
-    maxReplyChars: config.ai.maxReplyChars,
-  }),
+  new AudioTranscriptionCapability(transcriptionProvider, audit, { enabled: config.transcription.enabled, maxBytes: config.transcription.maxBytes, maxTranscriptChars: config.transcription.maxTranscriptChars }),
+  new AiCapability(aiProvider, audit, { enabled: config.ai.enabled, maxInputChars: config.ai.maxInputChars, maxReplyChars: config.ai.maxReplyChars }),
 ];
 const core = new AssistantCore(transport, messages, capabilities);
 const reminderScheduler = new ReminderScheduler(reminders, transport, () => new Date(), audit);
 transport.onMessage((message) => core.handleIncoming(message));
-
 let appState: AssistantStatus['state'] = 'starting';
-const healthServer = await createHealthServer(config.healthHost, config.healthPort, {
-  isDatabaseReady: () => database.ping(),
-  getAssistantStatus: () => ({ state: appState, transport: transport.name, transportState: transport.getState() }),
-});
-
-retentionScheduler?.start();
-documentRetentionScheduler?.start();
-observerRetentionScheduler?.start();
-
+const healthServer = await createHealthServer(config.healthHost, config.healthPort, { isDatabaseReady: () => database.ping(), getAssistantStatus: () => ({ state: appState, transport: transport.name, transportState: transport.getState() }) });
+retentionScheduler?.start(); documentRetentionScheduler?.start(); observerRetentionScheduler?.start();
 try {
-  await transport.connect();
-  reminderScheduler.start();
-  briefingScheduler?.start();
-  commitmentNotificationScheduler?.start();
-  appState = 'ready';
+  await transport.connect(); reminderScheduler.start(); briefingScheduler?.start(); commitmentNotificationScheduler?.start(); appState = 'ready';
   logger.info('Assistant started', {
-    dbPath: database.path,
-    health: `${config.healthHost}:${config.healthPort}`,
-    transport: transport.name,
-    transportState: transport.getState(),
-    aiEnabled: config.ai.enabled,
-    aiProvider: config.ai.enabled ? config.ai.provider : 'disabled',
-    transcriptionEnabled: config.transcription.enabled,
-    transcriptionProvider: config.transcription.enabled ? config.transcription.provider : 'disabled',
-    documentsEnabled: config.documents.enabled,
-    documentExtractor: config.documents.enabled ? documentExtractor?.name : 'disabled',
-    documentOcrEnabled: config.documents.ocr.enabled,
-    documentOcrLanguages: config.documents.ocr.enabled ? config.documents.ocr.languages : undefined,
-    documentRetentionEnabled: config.documents.retention.enabled,
-    documentRetentionDays: config.documents.retention.enabled ? config.documents.retention.days : undefined,
-    semanticEnabled: config.semantic.enabled,
-    embeddingsEnabled: config.semantic.embeddings.enabled,
-    embeddingsProvider: config.semantic.embeddings.enabled ? config.semantic.embeddings.provider : 'disabled',
-    embeddingsDimensions: config.semantic.embeddings.enabled ? config.semantic.embeddings.dimensions : undefined,
-    documentQaEnabled: documentQaConfig.enabled,
-    gmailMetadataReadEnabled: gmailReadConfig.enabled,
-    gmailAnalysisEnabled: gmailAnalysisConfig.enabled,
-    executiveSummaryEnabled: executiveSummaryConfig.enabled,
-    executivePrioritiesEnabled: executivePrioritiesConfig.enabled,
-    calendarReadsEnabled: calendarReadConfig.enabled,
-    calendarReadWindow: calendarReadConfig.enabled
-      ? `${String(Math.floor(calendarReadConfig.dayStartMinutes / 60)).padStart(2, '0')}:${String(calendarReadConfig.dayStartMinutes % 60).padStart(2, '0')}-${String(Math.floor(calendarReadConfig.dayEndMinutes / 60)).padStart(2, '0')}:${String(calendarReadConfig.dayEndMinutes % 60).padStart(2, '0')}`
-      : undefined,
-    calendarSlotSuggestionsEnabled: calendarSlotSuggestionConfig.enabled,
-    calendarSlotSuggestionLimit: calendarSlotSuggestionConfig.enabled ? calendarSlotSuggestionConfig.maxSuggestions : undefined,
-    calendarExactAvailabilityEnabled: calendarExactAvailabilityConfig.enabled,
-    calendarWritesEnabled: config.calendar.enabled,
-    calendarProvider: config.calendar.enabled || calendarReadConfig.enabled ? config.calendar.provider : 'disabled',
-    dailyBriefingEnabled: config.briefing.enabled,
-    dailyBriefingTime: `${String(config.briefing.hour).padStart(2, '0')}:${String(config.briefing.minute).padStart(2, '0')}`,
-    commitmentNotificationsEnabled: commitmentNotificationConfig.enabled,
-    commitmentNotificationDestinationConfigured: Boolean(commitmentNotificationConfig.destinationJid),
-    observerEnabled: config.observer.enabled,
-    observedChatAllowlistCount: observedChats.listEnabled().length,
-    observerStorage: config.observer.enabled ? 'sqlite-text-only' : 'disabled',
-    localMemorySearch: 'sqlite-fts5-explicit-only',
-    localCommitments: 'sqlite-explicit-only',
-    observerSearch: 'sqlite-fts5-exact-jid-explicit-only',
-    retentionEnabled: config.retention.enabled,
-    retentionPolicy: config.retention.enabled ? {
-      messageDays: config.retention.messageDays,
-      outboundDays: config.retention.outboundDays,
-      auditDays: config.retention.auditDays,
-      briefingDays: config.retention.briefingDays,
-    } : undefined,
+    dbPath: database.path, health: `${config.healthHost}:${config.healthPort}`, transport: transport.name, transportState: transport.getState(),
+    aiEnabled: config.ai.enabled, aiProvider: config.ai.enabled ? config.ai.provider : 'disabled', transcriptionEnabled: config.transcription.enabled, transcriptionProvider: config.transcription.enabled ? config.transcription.provider : 'disabled',
+    documentsEnabled: config.documents.enabled, documentExtractor: config.documents.enabled ? documentExtractor?.name : 'disabled', documentOcrEnabled: config.documents.ocr.enabled, documentOcrLanguages: config.documents.ocr.enabled ? config.documents.ocr.languages : undefined,
+    documentRetentionEnabled: config.documents.retention.enabled, documentRetentionDays: config.documents.retention.enabled ? config.documents.retention.days : undefined, semanticEnabled: config.semantic.enabled, embeddingsEnabled: config.semantic.embeddings.enabled,
+    embeddingsProvider: config.semantic.embeddings.enabled ? config.semantic.embeddings.provider : 'disabled', embeddingsDimensions: config.semantic.embeddings.enabled ? config.semantic.embeddings.dimensions : undefined, documentQaEnabled: documentQaConfig.enabled,
+    gmailMetadataReadEnabled: gmailReadConfig.enabled, gmailAnalysisEnabled: gmailAnalysisConfig.enabled, executiveSummaryEnabled: executiveSummaryConfig.enabled, executivePrioritiesEnabled: executivePrioritiesConfig.enabled, executiveBriefingEnabled: executiveBriefingConfig.enabled,
+    calendarReadsEnabled: calendarReadConfig.enabled, calendarReadWindow: calendarReadConfig.enabled ? `${String(Math.floor(calendarReadConfig.dayStartMinutes / 60)).padStart(2, '0')}:${String(calendarReadConfig.dayStartMinutes % 60).padStart(2, '0')}-${String(Math.floor(calendarReadConfig.dayEndMinutes / 60)).padStart(2, '0')}:${String(calendarReadConfig.dayEndMinutes % 60).padStart(2, '0')}` : undefined,
+    calendarSlotSuggestionsEnabled: calendarSlotSuggestionConfig.enabled, calendarSlotSuggestionLimit: calendarSlotSuggestionConfig.enabled ? calendarSlotSuggestionConfig.maxSuggestions : undefined, calendarExactAvailabilityEnabled: calendarExactAvailabilityConfig.enabled,
+    calendarWritesEnabled: config.calendar.enabled, calendarProvider: config.calendar.enabled || calendarReadConfig.enabled ? config.calendar.provider : 'disabled', dailyBriefingEnabled: config.briefing.enabled, dailyBriefingTime: `${String(config.briefing.hour).padStart(2, '0')}:${String(config.briefing.minute).padStart(2, '0')}`,
+    commitmentNotificationsEnabled: commitmentNotificationConfig.enabled, commitmentNotificationDestinationConfigured: Boolean(commitmentNotificationConfig.destinationJid), observerEnabled: config.observer.enabled, observedChatAllowlistCount: observedChats.listEnabled().length,
+    observerStorage: config.observer.enabled ? 'sqlite-text-only' : 'disabled', localMemorySearch: 'sqlite-fts5-explicit-only', localCommitments: 'sqlite-explicit-only', observerSearch: 'sqlite-fts5-exact-jid-explicit-only', retentionEnabled: config.retention.enabled,
+    retentionPolicy: config.retention.enabled ? { messageDays: config.retention.messageDays, outboundDays: config.retention.outboundDays, auditDays: config.retention.auditDays, briefingDays: config.retention.briefingDays } : undefined,
   });
 } catch (error) {
-  appState = 'degraded';
-  logger.error('Assistant transport failed to start; health API remains available', {
-    error: error instanceof Error ? error.message : String(error),
-  });
+  appState = 'degraded'; logger.error('Assistant transport failed to start; health API remains available', { error: error instanceof Error ? error.message : String(error) });
 }
-
 let shuttingDown = false;
 async function shutdown(signal: string): Promise<void> {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  appState = 'stopped';
-  logger.info('Shutting down', { signal });
-  observerRetentionScheduler?.stop();
-  documentRetentionScheduler?.stop();
-  retentionScheduler?.stop();
-  commitmentNotificationScheduler?.stop();
-  briefingScheduler?.stop();
-  reminderScheduler.stop();
-  await transport.disconnect().catch(() => undefined);
-  await new Promise<void>((resolve) => healthServer.close(() => resolve()));
-  database.close();
+  if (shuttingDown) return; shuttingDown = true; appState = 'stopped'; logger.info('Shutting down', { signal }); observerRetentionScheduler?.stop(); documentRetentionScheduler?.stop(); retentionScheduler?.stop(); commitmentNotificationScheduler?.stop(); briefingScheduler?.stop(); reminderScheduler.stop(); await transport.disconnect().catch(() => undefined); await new Promise<void>((resolve) => healthServer.close(() => resolve())); database.close();
 }
-
-for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-  process.on(signal, () => { void shutdown(signal).finally(() => process.exit(0)); });
-}
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => { void shutdown(signal).finally(() => process.exit(0)); });
